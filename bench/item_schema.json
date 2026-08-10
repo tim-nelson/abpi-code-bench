@@ -1,0 +1,517 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://abpicodebench.com/schemas/item-0.1.json",
+ "title": "ABPI Code Bench item (phase 1: T1, T1-triage, T3; T4 withdrawn)",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "item_id",
+  "task",
+  "inputs",
+  "label",
+  "case_number",
+  "split",
+  "tags",
+  "contamination"
+ ],
+ "properties": {
+  "item_id": {
+   "type": "string",
+   "description": "Deterministic: <task>-blake2b(task | case | clause key | segment refs).",
+   "pattern": "^(T1|T1-triage|T3|T4)-[0-9a-f]{16}$"
+  },
+  "task": {
+   "description": "T4 is still described here so that older banks validate, but bench/generate.py no longer emits it: its positive class was a keyword false friend (bench/review/DEFECTS.md D1) and the task is withdrawn pending redesign.",
+   "type": "string",
+   "enum": [
+    "T1",
+    "T1-triage",
+    "T3",
+    "T4"
+   ]
+  },
+  "inputs": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "extract_text",
+    "extract_provenance",
+    "clause_ref",
+    "metadata_shown"
+   ],
+   "properties": {
+    "extract_text": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Quoted L2 segment text, concatenated in the order given by extract_provenance. Only ever drawn from segments whose leakage_attest.clean is true and whose kind is complaint or response (DESIGN.md §5)."
+    },
+    "extract_provenance": {
+     "type": "array",
+     "minItems": 1,
+     "description": "One entry per quoted segment, in concatenation order. DEVIATION from the brief's single-object sketch: a T1 extract quotes two disjoint spans (complaint and response), which one (file, pane, char_start, char_end) object cannot describe without spanning text that was not quoted. Provenance to the character (DESIGN.md §1.2) requires the array.",
+     "items": {
+      "$ref": "#/$defs/provenance"
+     }
+    },
+    "clause_ref": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "code_year",
+      "clause",
+      "clause_text"
+     ],
+     "properties": {
+      "code_year": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 1998,
+       "maximum": 2030,
+       "description": "The Code edition the clause reference is keyed to. Null where L2 resolves no Code year at all (57 cases). The floor is 1998, not 2003: the corpus reaches back further than the corpus of REPORTS does, because a complaint is adjudicated under the edition in force at the time of the CONDUCT -- AUTH/3200/5/19 is a 2019 complaint about a 2002 meeting and the Panel ruled it under the 2001 Code ('The requirements of the 2001 Code therefore applied'), adjudicated in l2/adjudications.json. 1998 is the earliest edition the corpus names (AUTH/3200/5/19 weighs 'either the 1998 or the 2001 Code')."
+      },
+      "clause": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "pattern": "^[0-9]+(\\.[0-9]+)*$",
+       "description": "Null on T4 only -- scope is a case-level question with no clause under test."
+      },
+      "clause_text": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "Verbatim Code text for (code_year, clause). Null until data/code/ exists (DESIGN.md §7); items generated without it are flagged with the tag no_clause_text."
+      }
+     }
+    },
+    "metadata_shown": {
+     "type": "object",
+     "additionalProperties": false,
+     "description": "Everything about the case the model is allowed to see besides the extract. Outcome fields, sanction fields, procedure flags, the case number, the subject line and the meta description are all excluded by construction (DESIGN.md §5).",
+     "required": [
+      "respondent",
+      "complainant_category",
+      "complainant_anonymous",
+      "complainant_contactable",
+      "code_year",
+      "date_received"
+     ],
+     "properties": {
+      "respondent": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "complainant_category": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "complainant_anonymous": {
+       "type": [
+        "boolean",
+        "null"
+       ]
+      },
+      "complainant_contactable": {
+       "type": [
+        "boolean",
+        "null"
+       ]
+      },
+      "code_year": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "date_received": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      },
+      "panel_ruling_for_clause": {
+       "type": "string",
+       "enum": [
+        "breach",
+        "no_breach"
+       ],
+       "description": "T3 ONLY. The Panel ruling is the premise of the appeal-survival question (DESIGN.md §2 T3), not its label; the label is the Appeal Board outcome. Present on no other task."
+      },
+      "appellant": {
+       "type": "string",
+       "enum": [
+        "respondent",
+        "complainant",
+        "both"
+       ],
+       "description": "T3 ONLY."
+      }
+     }
+    },
+    "renditions": {
+     "type": "array",
+     "default": [],
+     "description": "Alternate publisher-written tellings of the allegation, for the P1 rendition-swap perturbation (DESIGN.md §4.1). l2.1: each comes from an attested rendition segment (summary_rendition / abstract_rendition / PDF abstract), cut before the outcome-stating tail; attached only to allegation-only extracts (T1-triage, T4).",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "name",
+       "extract_text",
+       "extract_provenance"
+      ],
+      "properties": {
+       "name": {
+        "type": "string",
+        "enum": [
+         "summary",
+         "report_abstract",
+         "pdf_flow"
+        ]
+       },
+       "extract_text": {
+        "type": "string",
+        "minLength": 1
+       },
+       "extract_provenance": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "$ref": "#/$defs/provenance"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "label": {
+   "type": "string",
+   "enum": [
+    "breach",
+    "no_breach",
+    "in_scope",
+    "outwith_scope",
+    "upheld",
+    "overturned"
+   ]
+  },
+  "case_number": {
+   "type": "string",
+   "description": "Bookkeeping and case-blocked resampling only -- never shown to the model.",
+   "minLength": 1
+  },
+  "sibling_case_numbers": {
+   "description": "Present only where co-reported cases produced byte-identical items (same task, extract, clause and label) and they were folded into this one (DEFECTS.md D4). The other case numbers the item equally documents; scoring counts the item ONCE. Never shown to the model.",
+   "type": "array",
+   "minItems": 1,
+   "uniqueItems": true,
+   "items": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "split": {
+   "type": "string",
+   "enum": [
+    "train",
+    "dev",
+    "test"
+   ]
+  },
+  "tags": {
+   "type": "array",
+   "uniqueItems": true,
+   "items": {
+    "type": "string"
+   },
+   "description": "Analysis-side only. Tags can encode outcome-bearing facts (appeal_flip, abridged); run.py never renders them."
+  },
+  "contamination": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "probe_status"
+   ],
+   "properties": {
+    "probe_status": {
+     "type": "string",
+     "enum": [
+      "untested",
+      "clean",
+      "contaminated"
+     ],
+     "description": "untested until the memorisation probe of DESIGN.md §6 runs."
+    }
+   }
+  }
+ },
+ "$defs": {
+  "provenance": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "kind",
+    "file",
+    "pane",
+    "char_start",
+    "char_end"
+   ],
+   "properties": {
+    "kind": {
+     "type": "string",
+     "enum": [
+      "complaint",
+      "response",
+      "panel_ruling",
+      "summary_rendition",
+      "abstract_rendition",
+      "abstract"
+     ]
+    },
+    "file": {
+     "type": "string",
+     "minLength": 1
+    },
+    "pane": {
+     "type": "string",
+     "minLength": 1
+    },
+    "char_start": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "char_end": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "text_length": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "text_sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    }
+   }
+  }
+ },
+ "allOf": [
+  {
+   "if": {
+    "properties": {
+     "task": {
+      "const": "T1"
+     }
+    },
+    "required": [
+     "task"
+    ]
+   },
+   "then": {
+    "properties": {
+     "label": {
+      "enum": [
+       "breach",
+       "no_breach"
+      ]
+     },
+     "inputs": {
+      "properties": {
+       "clause_ref": {
+        "properties": {
+         "clause": {
+          "type": "string"
+         }
+        }
+       },
+       "extract_provenance": {
+        "minItems": 2
+       },
+       "metadata_shown": {
+        "not": {
+         "anyOf": [
+          {
+           "required": [
+            "panel_ruling_for_clause"
+           ]
+          },
+          {
+           "required": [
+            "appellant"
+           ]
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "task": {
+      "const": "T1-triage"
+     }
+    },
+    "required": [
+     "task"
+    ]
+   },
+   "then": {
+    "properties": {
+     "label": {
+      "enum": [
+       "breach",
+       "no_breach"
+      ]
+     },
+     "inputs": {
+      "properties": {
+       "clause_ref": {
+        "properties": {
+         "clause": {
+          "type": "string"
+         }
+        }
+       },
+       "extract_provenance": {
+        "items": {
+         "properties": {
+          "kind": {
+           "const": "complaint"
+          }
+         }
+        }
+       },
+       "metadata_shown": {
+        "not": {
+         "anyOf": [
+          {
+           "required": [
+            "panel_ruling_for_clause"
+           ]
+          },
+          {
+           "required": [
+            "appellant"
+           ]
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "task": {
+      "const": "T3"
+     }
+    },
+    "required": [
+     "task"
+    ]
+   },
+   "then": {
+    "properties": {
+     "label": {
+      "enum": [
+       "upheld",
+       "overturned"
+      ]
+     },
+     "inputs": {
+      "properties": {
+       "clause_ref": {
+        "properties": {
+         "clause": {
+          "type": "string"
+         }
+        }
+       },
+       "metadata_shown": {
+        "required": [
+         "panel_ruling_for_clause",
+         "appellant"
+        ]
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "task": {
+      "const": "T4"
+     }
+    },
+    "required": [
+     "task"
+    ]
+   },
+   "then": {
+    "properties": {
+     "label": {
+      "enum": [
+       "in_scope",
+       "outwith_scope"
+      ]
+     },
+     "inputs": {
+      "properties": {
+       "clause_ref": {
+        "properties": {
+         "clause": {
+          "type": "null"
+         }
+        }
+       },
+       "extract_provenance": {
+        "items": {
+         "properties": {
+          "kind": {
+           "const": "complaint"
+          }
+         }
+        }
+       },
+       "metadata_shown": {
+        "not": {
+         "anyOf": [
+          {
+           "required": [
+            "panel_ruling_for_clause"
+           ]
+          },
+          {
+           "required": [
+            "appellant"
+           ]
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ ]
+}

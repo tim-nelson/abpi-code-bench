@@ -1,0 +1,962 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pmcpa-bench.local/l1/schema.json",
+  "title": "PMCPA L1 record",
+  "description": "One standardised record per case page. Every key is present on every record; absence is a value (null = genuinely absent in source, \"\" = present but empty, [] = parsed and found nothing). L1 standardises location and shape only -- it never repairs or resolves a value.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "file",
+    "source",
+    "identity",
+    "meta",
+    "meta_other",
+    "info_holder",
+    "aside_links",
+    "aside_headings",
+    "panes",
+    "sections",
+    "tables",
+    "outcomes",
+    "dates",
+    "appeal",
+    "markup"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "l1.5"
+    },
+    "file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "final_url",
+        "sha256",
+        "html_bytes",
+        "fetched_at",
+        "transforms"
+      ],
+      "properties": {
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "final_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "html_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fetched_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "identity": {
+      "description": "Five places a case number can be stated. They demonstrably disagree (AUTH-3303-1-20's field reads 'Anonymous complainant v Vifor'), so each source keeps its own slot and L1 resolves none of them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filename_stem",
+        "filename_case_numbers",
+        "meta_case_number",
+        "meta_case_numbers_parsed",
+        "info_case_number",
+        "info_case_numbers_parsed",
+        "h1_text",
+        "h1_case_numbers_parsed",
+        "h2_text",
+        "title_text",
+        "title_case_numbers_parsed",
+        "index_case_number",
+        "url_slug"
+      ],
+      "properties": {
+        "filename_stem": {
+          "type": "string"
+        },
+        "filename_case_numbers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "meta_case_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_case_numbers_parsed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "info_case_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_case_numbers_parsed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "h1_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "h1_case_numbers_parsed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "h2_text": {
+          "description": "The hero <h2> subject line; disagrees with meta cludo:description on 850 pages. null = hero has no <h2>.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title_text": {
+          "description": "The <title> tag; disagrees with <h1> on 45 pages.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title_case_numbers_parsed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "index_case_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url_slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "meta": {
+      "description": "All 22 cludo:* properties, verbatim. The key is present even when the source emits an empty tag (\"\") and even if the tag were absent (null).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cludo:additional_sanctions",
+        "cludo:appeal",
+        "cludo:applicable_code_year",
+        "cludo:case_number",
+        "cludo:case_reference",
+        "cludo:clause_breach",
+        "cludo:clause_no_breach",
+        "cludo:complainant",
+        "cludo:completed_date",
+        "cludo:date",
+        "cludo:description",
+        "cludo:display_date",
+        "cludo:is_completed",
+        "cludo:keywords",
+        "cludo:overview",
+        "cludo:recieved_date",
+        "cludo:related_clauses",
+        "cludo:respondent",
+        "cludo:review",
+        "cludo:sanctions_applied",
+        "cludo:status",
+        "cludo:title"
+      ],
+      "patternProperties": {
+        "^cludo:": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "meta_other": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "content"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "info_holder": {
+      "description": "The labelled facts block above the tabs, in document order, verbatim.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "label",
+          "value",
+          "value_html"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "value_html": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "aside_links": {
+      "description": "Every <a> in the page-layout-aside, in document order: case-report downloads (.pdf and .docx), advertised-sanctions links, the back-link. Link text is kept because it can state a case number. href null = no href attribute; \"\" = empty href in source.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "href",
+          "text"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "href": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "aside_headings": {
+      "description": "Headings (h1-h6) inside the page-layout-aside, in document order. Exactly one page in the corpus has one: AUTH-2789-8-15's 'RELATED ADVICE' above a related-case link.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "tag",
+          "text"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tag": {
+            "enum": [
+              "h1",
+              "h2",
+              "h3",
+              "h4",
+              "h5",
+              "h6"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "panes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "report"
+      ],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/pane"
+        },
+        "report": {
+          "$ref": "#/$defs/pane"
+        }
+      }
+    },
+    "sections": {
+      "description": "Ordered sections across both panes. Shape is standardised; heading_text stays VERBATIM. heading_normalised is null whenever nothing matches -- collapsing the 3010 observed heading strings into a controlled vocabulary is an L2 decision.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "pane",
+          "heading_text",
+          "carrier_tag",
+          "carrier_emphasised",
+          "char_start",
+          "char_end",
+          "text",
+          "text_length",
+          "heading_evidence",
+          "emphasis_spans",
+          "list_spans",
+          "links",
+          "images",
+          "line_breaks"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pane": {
+            "enum": [
+              "summary",
+              "report"
+            ]
+          },
+          "heading_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "carrier_tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "carrier_emphasised": {
+            "type": "boolean"
+          },
+          "char_start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "char_end": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string"
+          },
+          "text_length": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "heading_evidence": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "carrier_tag",
+              "uppercase_ratio",
+              "word_count",
+              "has_terminal_punctuation",
+              "is_standalone_element",
+              "has_numbered_prefix",
+              "is_bold_or_emphasised",
+              "in_table_cell",
+              "matches_date_trailer",
+              "followed_by_body_chars",
+              "char_count",
+              "unbalanced_quote"
+            ],
+            "properties": {
+              "carrier_tag": {
+                "type": "string"
+              },
+              "uppercase_ratio": {
+                "type": "number"
+              },
+              "word_count": {
+                "type": "integer"
+              },
+              "has_terminal_punctuation": {
+                "type": "boolean"
+              },
+              "is_standalone_element": {
+                "type": "boolean"
+              },
+              "has_numbered_prefix": {
+                "type": "boolean"
+              },
+              "is_bold_or_emphasised": {
+                "type": "boolean"
+              },
+              "in_table_cell": {
+                "type": "boolean"
+              },
+              "matches_date_trailer": {
+                "type": "boolean"
+              },
+              "followed_by_body_chars": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "char_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unbalanced_quote": {
+                "type": "boolean"
+              }
+            }
+          },
+          "emphasis_spans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "start",
+                "end",
+                "kind",
+                "text"
+              ],
+              "properties": {
+                "start": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "kind": {
+                  "enum": [
+                    "em",
+                    "strong",
+                    "b",
+                    "i",
+                    "u",
+                    "css"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "list_spans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "start",
+                "end",
+                "list_type",
+                "list_id",
+                "item_index",
+                "text"
+              ],
+              "properties": {
+                "start": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "list_type": {
+                  "enum": [
+                    "ul",
+                    "ol"
+                  ]
+                },
+                "list_id": {
+                  "type": "integer"
+                },
+                "item_index": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "start",
+                "end",
+                "href",
+                "text"
+              ],
+              "properties": {
+                "start": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "href": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "offset",
+                "src",
+                "alt"
+              ],
+              "properties": {
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "src": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "alt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "line_breaks": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "pane",
+          "n_rows",
+          "n_cols",
+          "rows"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pane": {
+            "enum": [
+              "summary",
+              "report"
+            ]
+          },
+          "n_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "n_cols": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "outcomes": {
+      "description": "Every distinct place the site states an outcome. These disagree in the corpus -- the meta holds the post-appeal result while the Panel ruled otherwise, and 322 files list a clause as both breach and no-breach -- so all sources sit side by side and none is preferred here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "meta_clause_breach",
+        "meta_clause_no_breach",
+        "meta_status",
+        "meta_sanctions_applied",
+        "meta_additional_sanctions",
+        "info_breach_clauses",
+        "info_no_breach_clauses",
+        "info_sanctions_applied",
+        "info_additional_sanctions",
+        "report_table_rows"
+      ],
+      "properties": {
+        "meta_clause_breach": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_clause_no_breach": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_sanctions_applied": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_additional_sanctions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_breach_clauses": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_no_breach_clauses": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_sanctions_applied": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_additional_sanctions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report_table_rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "order",
+              "pane",
+              "table_index",
+              "verdict_text",
+              "description_text"
+            ],
+            "properties": {
+              "order": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pane": {
+                "enum": [
+                  "summary",
+                  "report"
+                ]
+              },
+              "table_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "verdict_text": {
+                "type": "string"
+              },
+              "description_text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "dates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "meta_received",
+        "meta_completed",
+        "info_received",
+        "info_completed",
+        "report_trailer_lines"
+      ],
+      "properties": {
+        "meta_received": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_completed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_received": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_completed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report_trailer_lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "appeal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "meta_appeal",
+        "info_appeal_hearing"
+      ],
+      "properties": {
+        "meta_appeal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "info_appeal_hearing": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "markup": {
+      "description": "Structural observations about the source markup. Facts about the document, not interpretation of the case.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "has_mso",
+        "has_case_item",
+        "has_sharepoint_residue",
+        "has_rte_content",
+        "n_tables_summary",
+        "n_tables_report",
+        "heading_carrier_tags",
+        "panel_ruling_in_report_text",
+        "outcome_intro_in_report",
+        "pdf_links"
+      ],
+      "properties": {
+        "has_mso": {
+          "type": "boolean"
+        },
+        "has_case_item": {
+          "type": "boolean"
+        },
+        "has_sharepoint_residue": {
+          "type": "boolean"
+        },
+        "has_rte_content": {
+          "type": "boolean"
+        },
+        "n_tables_summary": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n_tables_report": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "heading_carrier_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "panel_ruling_in_report_text": {
+          "type": "boolean"
+        },
+        "outcome_intro_in_report": {
+          "type": "boolean"
+        },
+        "pdf_links": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "present",
+        "text",
+        "text_length",
+        "html_length",
+        "emphasis_spans"
+      ],
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        },
+        "text_length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "html_length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "emphasis_spans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "start",
+              "end",
+              "kind",
+              "text"
+            ],
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "kind": {
+                "enum": [
+                  "em",
+                  "strong",
+                  "b",
+                  "i",
+                  "u",
+                  "css"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

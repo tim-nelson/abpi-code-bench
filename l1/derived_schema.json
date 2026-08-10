@@ -1,0 +1,206 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://pmcpa-bench.local/l1/derived_schema.json",
+ "title": "PMCPA derived classifier verdicts (l1d.4)",
+ "description": "One object per L1 record, in records.jsonl order. Every field is a classifier verdict computed by l1/derive.py from records.jsonl alone; each has a measured error rate and none is part of the honest representation.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema_version",
+  "file",
+  "source_schema_version",
+  "sections",
+  "abstract_boundary",
+  "source_integrity",
+  "banner_headings",
+  "panel_ruling_standalone_heading"
+ ],
+ "properties": {
+  "schema_version": {
+   "const": "l1d.4"
+  },
+  "file": {
+   "type": "string",
+   "pattern": "\\.html$"
+  },
+  "source_schema_version": {
+   "const": "l1.5"
+  },
+  "sections": {
+   "description": "Parallel to the record's sections[]: one verdict object per section, matched by (pane, index).",
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "index",
+     "pane",
+     "heading_confidence",
+     "heading_normalised",
+     "heading_normalised_v1",
+     "heading_v1_would_emit"
+    ],
+    "properties": {
+     "index": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "pane": {
+      "enum": [
+       "summary",
+       "report"
+      ]
+     },
+     "heading_confidence": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "high",
+       "medium",
+       "low",
+       null
+      ]
+     },
+     "heading_normalised": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "PANEL_RULING",
+       "APPEAL_BOARD_RULING",
+       "APPEAL_GROUNDS",
+       "APPEAL_BOARD_CONSIDERATION",
+       "APPEAL_COMMENTS_HEADING",
+       "CASE_SUMMARY",
+       "FULL_CASE_REPORT",
+       "COMPLAINT",
+       "RESPONSE",
+       "CASE_TITLE",
+       "OUTCOME_BANNER",
+       "SUBHEADING_OR_CAPTION",
+       null
+      ]
+     },
+     "heading_normalised_v1": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "PANEL_RULING",
+       "APPEAL_BOARD_RULING",
+       "CASE_SUMMARY",
+       "FULL_CASE_REPORT",
+       "COMPLAINT",
+       "RESPONSE",
+       null
+      ]
+     },
+     "heading_v1_would_emit": {
+      "type": "boolean"
+     }
+    }
+   }
+  },
+  "abstract_boundary": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "offset",
+    "method",
+    "oracle_available",
+    "oracle_alignment_score",
+    "confidence",
+    "is_measured",
+    "note"
+   ],
+   "properties": {
+    "offset": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0
+    },
+    "method": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "oracle",
+      "restart",
+      "last_ruling",
+      null
+     ]
+    },
+    "oracle_available": {
+     "type": "boolean"
+    },
+    "oracle_alignment_score": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "confidence": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "high",
+      "medium",
+      "low",
+      null
+     ]
+    },
+    "is_measured": {
+     "type": "boolean"
+    },
+    "note": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "source_integrity": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "status",
+    "note"
+   ],
+   "properties": {
+    "status": {
+     "enum": [
+      "ok",
+      "ok_with_title_typo",
+      "ok_arises_from_other_case",
+      "report_pane_mismatch"
+     ]
+    },
+    "note": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   }
+  },
+  "banner_headings": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "panel_ruling_standalone_heading": {
+   "type": "boolean"
+  }
+ }
+}

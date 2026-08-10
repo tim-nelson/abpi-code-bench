@@ -1,0 +1,158 @@
+[
+ {
+  "file": "AUTH-2091-1-08.html",
+  "reason": "report_pane_mismatch \u2014 report text belongs to another case",
+  "case_number": "AUTH/2091/1/08",
+  "h1": "AUTH/2091/1/08 - GE Healthcare v Guerbert",
+  "note": "report pane belongs to AUTH/2093/1/08",
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth2091108-ge-healthcare-v-guerbert/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/1276/2091-aug-2008.pdf"
+  ],
+  "report_chars": 24599
+ },
+ {
+  "file": "AUTH-2461-12-11.html",
+  "reason": "report_pane_mismatch \u2014 report text belongs to another case",
+  "case_number": "AUTH/2461/12/11",
+  "h1": "AUTH/2461/12/11 - Anonymous v AstraZeneca",
+  "note": "report pane belongs to AUTH/2462/12/11",
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth24611211-anonymous-v-astrazeneca/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/1570/2461-may-2012.pdf"
+  ],
+  "report_chars": 14602
+ },
+ {
+  "file": "AUTH-2602-5-13.html",
+  "reason": "report_pane_mismatch \u2014 report text belongs to another case",
+  "case_number": "AUTH/2602/5/13",
+  "h1": "AUTH/2602/5/13 - Anonymous v Chugai \u2013 Provision of hospitality",
+  "note": "report pane belongs to AUTH/2603/5/13",
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth2602513-anonymous-v-chugai-provision-of-hospitality/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/1675/2602-aug-2013.pdf"
+  ],
+  "report_chars": 28883
+ },
+ {
+  "file": "AUTH-3195-4-19.html",
+  "reason": "report_pane_mismatch \u2014 report text belongs to another case",
+  "case_number": "AUTH/3195/4/19 ",
+  "h1": "AUTH/3195/4/19 - Anonymous v Chiesi",
+  "note": "report pane belongs to AUTH/3194/4/19",
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth3195419-anonymous-v-chiesi/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/3340/3195-25-march-2021.pdf"
+  ],
+  "report_chars": 107510
+ },
+ {
+  "file": "AUTH-2063-10-07.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "AUTH/2063/10/07",
+  "h1": "AUTH/2063/10/07 - Hospital doctor v Abbott",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth20631007-hospital-doctor-v-abbott/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/3071/2063.pdf"
+  ],
+  "report_chars": 4538
+ },
+ {
+  "file": "AUTH-2186-11-08.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "AUTH/2186/11/08",
+  "h1": "AUTH/2186/11/08 - Pharmacist Practitioner v AstraZeneca",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth21861108-pharmacist-practitioner-v-astrazeneca/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/1350/2186-feb-2009.pdf"
+  ],
+  "report_chars": 3851
+ },
+ {
+  "file": "CASE-0308-10-24.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "CASE/0308/10/24 ",
+  "h1": "CASE/0308/10/24 - Complainant v CSL Seqirus",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/case03081024-complainant-v-csl-seqirus/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/vs2f4lfh/0308-abridged-case-report-9-dec-2024.pdf"
+  ],
+  "report_chars": 1474
+ },
+ {
+  "file": "CASE-0474-02-25.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "CASE/0474/02/25 ",
+  "h1": "CASE/0474/02/25 - Complainant v Bristol Myers Squibb",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/case04740225-complainant-v-bristol-myers-squibb/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/hwrl0kls/0474-case-report-18-march-25.pdf"
+  ],
+  "report_chars": 1469
+ },
+ {
+  "file": "CASE-0479-02-25.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "CASE/0479/02/25 ",
+  "h1": "CASE/0479/02/25 - Complainant v GSK",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/case04790225-complainant-v-gsk/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/sbchvsdf/0479-case-report-12-june-25.pdf"
+  ],
+  "report_chars": 2117
+ },
+ {
+  "file": "CASE-0592-05-25.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "CASE/0592/05/25",
+  "h1": "CASE/0592/05/25 - Complainant v Roche",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/case05920525-complainant-v-roche/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/pxsaqjc3/0592-case-report-11-september-25.pdf"
+  ],
+  "report_chars": 1490
+ },
+ {
+  "file": "CASE-0677-07-25.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "CASE/0677/07/25 ",
+  "h1": "CASE/0677/07/25 - Complainant v Pfizer",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/case06770725-complainant-v-pfizer/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/jvvnvhac/0677-case-report-24-october-25.pdf"
+  ],
+  "report_chars": 2357
+ },
+ {
+  "file": "CASE-0816-12-25.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "CASE/0816/12/25 ",
+  "h1": "CASE/0816/12/25 - Complainant v Novartis",
+  "note": null,
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/case08161225-complainant-v-novartis/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/ffxaiptl/case-report-0816-8-april-2026.pdf"
+  ],
+  "report_chars": 2228
+ },
+ {
+  "file": "AUTH-3015-1-18.html",
+  "reason": "summary_only \u2014 HTML has no report body; report exists only as PDF",
+  "case_number": "AUTH/3015/1/18",
+  "h1": "AUTH/3015/1/18 - Voluntary admission by Daiichi-Sankyo",
+  "note": "found 2026-08-01 by sweep: report pane empty (0 chars) with PDF link; missed by the original list",
+  "case_url": "https://www.pmcpa.org.uk/cases/completed-cases/auth3015118-voluntary-admission-by-daiichi-sankyo/",
+  "pdf_urls": [
+   "https://www.pmcpa.org.uk/media/1984/3015-aug-2018.pdf"
+  ],
+  "report_chars": 0
+ }
+]

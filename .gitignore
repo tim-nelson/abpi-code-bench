@@ -1,0 +1,17 @@
+# Pending the owner's tracking decision (docs/WORKING_RULES.md backlog): raw HTML corpus untracked for now
+data/html/
+data/pdf/
+data/publications/
+data/literature/
+# Regenerable layers and build artefacts
+data/l1/
+site/build/
+site/node_modules/
+site/static/data/
+site/.svelte-kit/
+dissertation/*.aux
+dissertation/*.log
+dissertation/*.out
+dissertation/*.toc
+# Secrets
+.env

@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pmcpa-bench.local/l1/pdf_schema.json",
+  "title": "PMCPA PDF case records (l1p.1)",
+  "description": "One record per case whose HTML report pane is wrong or absent, extracted verbatim from the verified PDF in data/pdf/ by l1/build_pdf.py. Observations only; reading order is measured (column-major, full-width barriers) and column structure is refused in words when ambiguous.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "file",
+    "html_file",
+    "case_number",
+    "reason",
+    "source",
+    "pages",
+    "flow_text",
+    "counts",
+    "verification"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "l1p.1"
+    },
+    "file": {
+      "type": "string",
+      "pattern": "\\.pdf$"
+    },
+    "html_file": {
+      "type": "string",
+      "pattern": "\\.html$"
+    },
+    "case_number": {
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "report_pane_mismatch",
+        "summary_only",
+        "derived"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "sha256",
+        "bytes",
+        "n_pages",
+        "derived_from",
+        "extractor",
+        "transforms"
+      ],
+      "properties": {
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "n_pages": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "derived_from": {
+          "description": "Always present. All-null on records read from the fetched PDF itself; populated when the file was cut from a larger source (the AUTH-2063 Review issue).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file",
+            "pages",
+            "tool"
+          ],
+          "properties": {
+            "file": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pages": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              ]
+            },
+            "tool": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "extractor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "version"
+          ],
+          "properties": {
+            "tool": {
+              "const": "pypdfium2"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "transforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "page_no",
+          "width",
+          "height",
+          "ink_source",
+          "columns",
+          "lines"
+        ],
+        "properties": {
+          "page_no": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "ink_source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "chars",
+              "invisible_ratio",
+              "image_objects",
+              "image_cover",
+              "is_scan",
+              "declaration"
+            ],
+            "properties": {
+              "chars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "invisible_ratio": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "image_objects": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "image_cover": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "is_scan": {
+                "type": "boolean"
+              },
+              "declaration": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "columns": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "two_column",
+              "gutter",
+              "row_support",
+              "refused"
+            ],
+            "properties": {
+              "two_column": {
+                "type": "boolean"
+              },
+              "gutter": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                ]
+              },
+              "row_support": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "refused": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "bbox",
+                "text",
+                "spans",
+                "column"
+              ],
+              "properties": {
+                "bbox": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "column": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "full",
+                    null
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "spans": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "start",
+                      "end",
+                      "font",
+                      "size",
+                      "bold",
+                      "italic",
+                      "script"
+                    ],
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "font": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "number"
+                      },
+                      "bold": {
+                        "type": "boolean"
+                      },
+                      "italic": {
+                        "type": "boolean"
+                      },
+                      "script": {
+                        "enum": [
+                          "baseline",
+                          "super",
+                          "sub"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "flow_text": {
+      "type": "string"
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pages",
+        "lines",
+        "chars",
+        "generated_glyphs_skipped",
+        "two_column_pages",
+        "refused_pages"
+      ],
+      "properties": {
+        "pages": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_glyphs_skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "two_column_pages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refused_pages": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_numbers_expected",
+        "case_number_found",
+        "summary_oracle"
+      ],
+      "properties": {
+        "case_numbers_expected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "case_number_found": {
+          "type": "boolean"
+        },
+        "summary_oracle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "available",
+            "alignment_score",
+            "matched_words",
+            "summary_words"
+          ],
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "alignment_score": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "matched_words": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "summary_words": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}
