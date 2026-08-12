@@ -330,9 +330,9 @@ def exclusion_reasons():
 
     The exclusions file keys on the case/clause/task, not on the item_id the
     dropped candidate would have had, so an absent id is joined through the
-    archived bank's row for it. All 4 ids absent from today's boards join
-    (3 dual_ruling, 1 code_year_undecided); a miss leaves the reason null
-    rather than inventing one.
+    archived bank's row for it. Every current board absence joins to one or
+    more durable exclusion reasons; a miss leaves the reason null rather than
+    inventing one.
     """
     out = collections.defaultdict(set)
     path = BENCH / "exclusions.jsonl"

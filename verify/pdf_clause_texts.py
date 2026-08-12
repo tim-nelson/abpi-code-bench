@@ -152,6 +152,21 @@ def render_expected(row, clause, subclauses=None, title=None):
     deliberately NOT imported from bench/generate.py, which is the code under
     test. `subclauses`/`title` override the row, so the same renderer serves a
     per-edition entry parked in `by_edition`."""
+    def prose(value):
+        """Collapse the extractor's string-or-paragraph-list representation."""
+        if isinstance(value, list):
+            return " ".join(prose(part) for part in value if part).strip()
+        return (value or "").strip() if isinstance(value, str) else ""
+
+    def render_supplementary(entries):
+        rendered = []
+        for entry in entries or []:
+            heading = prose(entry.get("heading"))
+            body = prose(entry.get("text"))
+            if body:
+                rendered.append((heading + ": " if heading else "") + body)
+        return "\n".join(rendered)
+
     title = row.get("clause_title") or "" if title is None else title
     if "." in str(clause):
         sub = None
@@ -172,10 +187,25 @@ def render_expected(row, clause, subclauses=None, title=None):
             parts.append("\n\nSupplementary information:\n" + "\n".join(supp))
         out = "".join(parts)
     else:
-        body = (row.get("text") or "").strip()
+        body = prose(row.get("text"))
         if not body:
             return None
         out = "Clause %s (%s):\n%s" % (clause, title, body)
+        # Some source rows model a whole undotted clause as a self-mirroring
+        # subclause (number == parent).  Its body is already row["text"], but
+        # its official supplementary entries are not.  Reconstruct both
+        # supplementary stores independently so the chain check tests the
+        # complete text served by the benchmark.
+        supplementary = []
+        general = prose(row.get("general_supplementary"))
+        if general:
+            supplementary.append({"heading": None, "text": general})
+        for sub in row.get("subclauses") or []:
+            if str(sub.get("number")) == str(clause):
+                supplementary.extend(sub.get("supplementary_information") or [])
+        rendered = render_supplementary(supplementary)
+        if rendered:
+            out += "\n\nSupplementary information:\n" + rendered
     # Wave C: no 6,000-character truncation. This reading has to agree with
     # bench/generate.py's rendering byte for byte, and the bench no longer
     # truncates -- keeping the cap here would make the independent check fail

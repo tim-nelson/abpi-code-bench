@@ -400,9 +400,12 @@
                   "type": "boolean"
                 },
                 "prose_source": {
+                  "description": "The bounded prose pane used for complainant metadata. The `+explicit_anonymity_request` suffix records the reviewed full-report exception for an explicit first-person request that the complainant's name remain anonymous.",
                   "enum": [
                     "report_opening",
-                    "summary_pane"
+                    "summary_pane",
+                    "report_opening+explicit_anonymity_request",
+                    "summary_pane+explicit_anonymity_request"
                   ]
                 },
                 "prose_anonymous": {
@@ -663,7 +666,7 @@
       }
     },
     "verdicts": {
-      "description": "SPEC §5 / C11-C12. One row per (clause, code_year, occurrence) the case's own outcome slots state a polarity for. [] is legitimate: outwith-scope cases and the no-report stubs state no outcome, and absence is a value. The outcome table and the banner headings are cross-checks, never row-creating; ruling prose attributes a row to the Panel, never creates one.",
+      "description": "SPEC §5 / C11-C12. Ordinarily, one row per (clause, code_year, occurrence) the case's own outcome slots state a polarity for. The sole row-creating exception is the finite, full-report-hash-pinned PROSE_ONLY_VERDICT_READ audit (`basis = verdict_prose_only_reviewed`); unreviewed ruling prose still only attributes an existing row. [] is legitimate: outwith-scope cases and the no-report stubs state no outcome, and absence is a value. The outcome table and banner headings are cross-checks, never row-creating.",
       "type": "array",
       "items": {
         "type": "object",
@@ -702,7 +705,7 @@
             "maximum": 2100
           },
           "code_year_basis": {
-            "description": "R20. Which evidence level decided `code_year`: `year_uncontested` where the chip, the outcome-table '(YYYY Code)' scope and the case slot state at most one year between them; `year_clause_prose` / `year_case_prose` / `year_case_slot` where they disagreed and the report's own words, or failing that the case slot, settled it; `year_undecided_*` where nothing did; an ADJUDICATION ID where a reviewed row in l2/adjudications.json (`verdicts[<clause>].code_year`, R20's residue round) read the report and keyed this row over witnesses that agreed. A null code_year is a REFUSAL under every basis EXCEPT `year_uncontested` -- the 57 cases that state no Code year anywhere carry null under that one.",
+            "description": "R20. Which evidence level decided `code_year`: `year_uncontested` where the chip, the outcome-table '(YYYY Code)' scope and the case slot state at most one year between them; `year_clause_prose` / `year_case_prose` / `year_case_slot` where they disagreed and the report's own words, or failing that the case slot, settled it; `year_undecided_*` where nothing did; `year_prose_only_reviewed` for the finite hash-pinned rows whose clause is absent from every structured outcome slot; or an ADJUDICATION ID where a reviewed row in l2/adjudications.json (`verdicts[<clause>].code_year`, R20's residue round) read the report and keyed this row over witnesses that agreed. A null code_year is a REFUSAL under every basis EXCEPT `year_uncontested` -- the 57 cases that state no Code year anywhere carry null under that one.",
             "$ref": "#/$defs/basis"
           },
           "occurrence": {

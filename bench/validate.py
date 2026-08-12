@@ -331,6 +331,9 @@ def main(argv=None):
     dual_rows = {(n, str(v.get("clause")))
                  for n, c in by_number.items() for v in (c.get("verdicts") or [])
                  if v.get("dual_ruling")}
+    dual_bases = {(n, str(v.get("clause"))): v.get("basis")
+                  for n, c in by_number.items() for v in (c.get("verdicts") or [])
+                  if v.get("dual_ruling")}
     # R28 stage 1, the appeal axis. Re-derived from the CASES the same way, and
     # scoped to T3 because that is the only task whose label is the transition:
     # the Board ruling a clause both ways says nothing about the Panel's own
@@ -551,6 +554,28 @@ def main(argv=None):
                     failures.append((f"exclusions:{i}", "invariant", "exclusions",
                                      f"{key} is recorded as excluded ({row['reason']}) yet an "
                                      f"item of that case/task/clause exists"))
+            # Assurance batch 1: a list-only dual is not evidence that the
+            # Panel *ruled* both ways. Check the durable receipt against L2's
+            # basis independently rather than accepting arbitrary detail text.
+            if row["reason"] == "dual_ruling" and row["clause"] is not None:
+                dual_key = (row["case_number"], row["clause"])
+                basis = dual_bases.get(dual_key)
+                if basis is None:
+                    failures.append((f"exclusions:{i}", "invariant", "exclusions",
+                                     f"{dual_key} is recorded as dual_ruling but L2 has no "
+                                     f"matching dual row"))
+                elif basis == "verdict_unappealed_dual_listed":
+                    expected = (f"listed both ways in the published outcome lists ({basis}), "
+                                f"no single label exists")
+                    if row["detail"] != expected:
+                        failures.append((f"exclusions:{i}", "invariant", "detail",
+                                         f"list-only dual must read {expected!r}"))
+                else:
+                    expected = (f"ruled both ways in this case ({basis}), "
+                                f"no single label exists")
+                    if row["detail"] != expected:
+                        failures.append((f"exclusions:{i}", "invariant", "detail",
+                                         f"prose/reviewed dual must read {expected!r}"))
 
     n_task = {}
     for item in items:

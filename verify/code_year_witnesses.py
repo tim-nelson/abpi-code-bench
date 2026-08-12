@@ -168,7 +168,13 @@ SENTENCE = re.compile(r"(?<=[.;])\s+")
 # 22.1' -- the clause token wherever it stands, which is the difference from the
 # builder's one anchored 'Clauses <list> of the YYYY Code' pattern. Bounded on
 # both sides so 21.3 does not match inside 121.35 or a date.
-CLAUSE_TOKEN = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d{1,2})?)(?![\d.])")
+# A full stop after an integer clause is sentence punctuation, not necessarily
+# the start of a subclause.  Refuse only another digit or a dot *followed by a
+# digit*: the former guard `(?![\d.])` silently lost terminal "Clause 2." in
+# AUTH/2676/11/13 even though the same sentence attaches the 2011 Code to the
+# conjoined ruling.  The left boundary remains strict, so neither half of a
+# larger number can be recovered by backtracking.
+CLAUSE_TOKEN = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d{1,2})?)(?!\d|\.\d)")
 YEAR_FIELD = re.compile(r"^verdicts\[(.+)\]\.code_year$")
 # Tier (d) reads the PLURAL too -- 'Clause 13.1 in the 2014, 2015 and 2016
 # Codes', 'the same in the 2001 and 2003 Codes' -- which is how a report says a

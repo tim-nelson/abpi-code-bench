@@ -144,15 +144,18 @@ RULES = {
     # -- complainant, prose-first (l2.3, DEFECTS D5 / the T1 blocker) --------
     "complainant_prose_first": (
         "at least one of category/anonymous/contactable was read from the case report's own "
-        "opening paragraph rather than from the one-word meta slot; the per-field bases in "
+        "opening paragraph (or the reviewed explicit name-anonymity request in the complaint) "
+        "rather than from the one-word meta slot; the per-field bases in "
         "`field_basis` say which, and every displaced meta value stays in `sources`"),
     "complainant_prose_self_description": (
         "the report's opening states a reflexive self-description ('who described themselves as "
         "a health professional') and the meta slot offered only `other` or `anonymous`, neither "
         "of which is a role; the self-description wins"),
     "complainant_prose_narrator_role": (
-        "the report's opening states the complainant's role as the SUBJECT of the complaint "
-        "verb in its own voice ('An anonymous general practitioner complained about ...') and "
+        "the report's opening states the complainant's role either as the SUBJECT of the "
+        "complaint verb in its own voice ('An anonymous general practitioner complained about "
+        "...') or as the direct source in the measured recent-site passive ('a complaint was "
+        "received from a health professional'), and "
         "the meta slot offered only `other`; the report's statement wins. Read only where no "
         "self-description was found anywhere in the opening (wave C)"),
     "complainant_employment_outranks_role": (
@@ -162,7 +165,9 @@ RULES = {
         "to a party and wins, and the role is kept in `note` and `sources.prose_role_verbatim`"),
     "complainant_prose_anonymity": (
         "the report's opening calls the complainant anonymous ('an anonymous complainant', "
-        "'wished to remain anonymous') and the meta slot does not say so; prose wins. Silence "
+        "'wished to remain anonymous'), or the complaint contains the reviewed first-person "
+        "request to keep the complainant's name anonymous, and the meta slot does not say so; "
+        "prose wins. Silence "
         "never runs the other way -- silence leaves the field null (l2.4)"),
     "complainant_prose_named": (
         "the report's opening states the complainant was NAMED ('a named, contactable "
@@ -173,12 +178,14 @@ RULES = {
         "(an inter-company complaint), or states the complainant was named; a named complainant "
         "is not an anonymous one (l2.4)"),
     "unresolved_anonymity_not_stated": (
-        "neither the report opening nor the meta slot states whether the complainant was "
+        "neither the report opening, the reviewed explicit anonymity-request frame, nor the "
+        "meta slot states whether the complainant was "
         "anonymous or named. l2.4 keeps the field null rather than reading silence as 'not "
         "anonymous' -- a bare 'Complainant' meta token states nothing (DEFECTS D6)"),
     "complainant_prose_contactability": (
         "the report's opening states contactability ('an anonymous, non-contactable "
-        "complainant'). The meta slot is not read for this field, so prose is the only source "
+        "complainant', 'the complainant could not be contacted'). The meta slot is not read "
+        "for this field, so prose is the only source "
         "and silence leaves it null"),
     "complainant_prose_contactability_final": (
         "the opening states contactability TWICE and the two disagree ('originally contactable "
@@ -240,10 +247,12 @@ RULES = {
     # -- sanctions ----------------------------------------------------------
     "sanctions_chips_over_meta_csv": "the rendered chips and the meta CSV disagree; the chips win (page-visible)",
     # -- C11/C12 verdicts (SPEC §5, rewritten in l2.2 for DEFECTS D3) --------
-    # Row-CREATING sources are the info-holder clause lists and the meta clause
-    # CSVs only. The outcome table and the banner headings are CROSS-CHECKS
-    # (SPEC §5 closing paragraph). Ruling prose ATTRIBUTES a ruling to a BODY;
-    # it never creates a row, and the lists never attribute one.
+    # Row-CREATING sources are ordinarily the info-holder clause lists and the
+    # meta clause CSVs only. The bounded, full-report-hash-pinned
+    # PROSE_ONLY_VERDICT_READ registry is the sole reviewed exception. The
+    # outcome table and banner headings remain CROSS-CHECKS (SPEC §5 closing
+    # paragraph); unreviewed ruling prose only ATTRIBUTES a ruling to a BODY,
+    # and the lists never attribute one.
     #
     # The removed l2.1 bases -- verdict_appeal_oriented_respondent /
     # _complainant, appeal_unoriented, verdict_upheld_appeal_prose(_inferred_
@@ -276,6 +285,12 @@ RULES = {
     "verdict_appeal_status_unresolved": (
         "the appeal status itself is unresolved (C6), so a stated polarity is final but cannot be "
         "attributed to the Panel or the Appeal Board"),
+    "verdict_prose_only_reviewed": (
+        "the outcome slots omit this clause, but the bounded prose-only assurance audit read the "
+        "complete ruling context and accepted a verdict row through PROSE_ONLY_VERDICT_READ. The "
+        "entry pins the report-pane sha, quotes every material disposing strand, fixes the final "
+        "polarity, and declares the expected Panel/Appeal Board attribution; an unreviewed prose "
+        "mention still cannot create a row"),
     # -- R20: which EDITION a verdict row is keyed to (`code_year_basis`) ----
     # These name the evidence LEVEL that decided a row's Code year, not a value.
     # They exist because the three structured witnesses -- the clause chip's
@@ -310,6 +325,10 @@ RULES = {
     "year_undecided_no_witness": (
         "the witnesses disagreed, the report states no edition, and the case's own year is "
         "absent or does not contain this clause"),
+    "year_prose_only_reviewed": (
+        "a PROSE_ONLY_VERDICT_READ entry created this otherwise absent row and the same full-case "
+        "reading fixed its Code edition (or refused it as null where the ruling spans editions); "
+        "the decision is pinned to the report-pane sha"),
     # R20's RESIDUE has no rule id, deliberately (2026-08-10 reading round).
     # The four bases above fire only where the structured witnesses disagree;
     # where the chip and the case slot already AGREE, the per-clause prose can
@@ -652,6 +671,15 @@ COMPLAINANT_TITLE_TOKEN_RE = re.compile(r"\b(?:director|consultants?)\b", re.I)
 COMPLAINANT_ANCHOR_RE = re.compile(r"\bcomplain(?:ant|ants|t|ts|ed|s|ing)\b", re.I)
 PROSE_ANONYMOUS_RE = re.compile(r"\banonymous(?:ly)?\b", re.I)
 PROSE_REMAIN_ANON_RE = re.compile(r"\bremain\s+anonymous\b", re.I)
+# Batch 6.  An explicit first-person publication request occurs in the
+# complaint text, beyond the opening-only metadata window: "I would like my
+# name to be kept anonymous."  The exact sentence occurs in eight files, all
+# copies of the same complaint (CASE/0748 and CASE/0832--0838), and every one
+# has the complainant as the speaker.  This is deliberately not widened to
+# "wish to remain anonymous": that wording also occurs in company responses
+# about third-party health professionals (for example CASE/0238/07/24).
+PROSE_EXPLICIT_ANONYMITY_REQUEST_RE = re.compile(
+    r"\bI\s+would\s+like\s+my\s+name\s+to\s+be\s+kept\s+anonymous\b", re.I)
 # DEFECTS R8. One quote in the corpus attaches `anonymous` to the EVIDENCE
 # rather than to the person: AUTH/2956/5/17, 'in any patient specific data and
 # the information sought was anonymous in nature'. The sentence names the
@@ -713,6 +741,17 @@ PROSE_NAMED_RE = re.compile(
 # only the 'non-' spelling left those cases' contactability null (l2.4).
 PROSE_NONCONTACTABLE_RE = re.compile(r"\b(?:non[\s\-‐–—]?|un[\s\-]?)contactable\b", re.I)
 PROSE_CONTACTABLE_RE = re.compile(r"\bcontactable\b", re.I)
+# Assurance batches 1--6.  The corpus also states the same fact as an action,
+# not an adjective: "the complainant could not be contacted".  This is kept
+# subject-bound rather than admitting bare "could not be contacted": all 25
+# firing sentences across 23 report openings were read, and all have the
+# complainant as the grammatical subject.  Nineteen files already resolve
+# False from an explicit non-/uncontactable statement elsewhere in their
+# opening; those keep their existing receipt byte-for-byte.  The action phrase
+# supplies the missing witness in AUTH/3293, AUTH/3502, AUTH/3751 and AUTH/3853
+# only.
+PROSE_COULD_NOT_CONTACT_RE = re.compile(
+    r"\bcomplainants?\b[^.;]{0,160}?\bcould\s+not\s+be\s+contacted\b", re.I)
 # l2.4 (audit fix 3a): the capture ran to 90 characters, which cut the role in
 # half on the corpus' longer openings ('described him/herself a[s a cardiac
 # specialist]'). It now runs to the end of the sentence clause or 200
@@ -793,6 +832,29 @@ PROSE_AS_ROLE_COPULA_RE = re.compile(
 # whose vocabulary would otherwise be read as a role ('writing as The Alliance
 # ... complained about slide kits ... to health professionals').
 PROSE_WRITING_AS_RE = re.compile(r"\bwriting\s+as\s+(?P<role>[^.;,’'”\"]{0,120})", re.I)
+# Assurance batches 1--6.  A deliberately narrow narrator appositive, distinct
+# from the unsafe general bare "described as" form discussed above.  Requiring
+# the complainant noun before the appositive and a complaint verb immediately
+# after it makes the role's subject explicit.  It fires twice in one report
+# opening (the case-summary copy and full-report opening), in one file only:
+# AUTH/2605/5/13, "complainant, described as a neurologist, complained".
+PROSE_APPOSITIVE_DESCRIBED_ROLE_RE = re.compile(
+    r"\bcomplainants?\s*,\s*described\s+as\s+(?:an?|the)\s+"
+    r"(?P<role>[^.;,]{1,80})\s*,\s*(?:complained|alleged|queried)\b", re.I)
+
+# The recent-site passive opening.  This is intentionally the measured health-
+# professional form, not a generic "received from <anything>" role guess.  It
+# fires on nine direct-role openings: AUTH/3700, AUTH/3755 and AUTH/3824 already
+# agree via their meta slots; AUTH/3735, AUTH/3804, CASE/0556, CASE/0557,
+# CASE/0558 and CASE/0709 move other -> health_professional.  Openings with "complainant who
+# described themselves" are outside this grammar and remain with the stronger
+# self-description receipt above.
+PROSE_PASSIVE_HEALTH_PROFESSIONAL_RE = re.compile(
+    r"\bcomplaint\s+was\s+received\s+from\s+"
+    r"(?P<role>(?:an?\s+)?(?:"
+    r"(?:named,\s*)?(?:contactable\s+)?(?:verified\s+)?health\s+professionals?"
+    r"|group\s+of\s+(?:verified\s+)?health\s+professionals?"
+    r"(?:\s+from\s+an?\s+NHS\s+Health\s+Board)?))\s+about\b", re.I)
 # Roles, in priority order, mapped to the SPEC §4 vocabulary. 'industry' is not
 # in that vocabulary and is not invented as an eleventh value: an industry
 # self-description maps to `other` and says so in the note.
@@ -947,7 +1009,13 @@ PROSE_ROLE_RULES = [
     # 'expert' is a role in no particular field.
     ("health_professional", re.compile(
         r"\b(?:he(?:al|a)th\s*(?:care)?\s*professional|healthcare\s+professional|clinician|"
-        r"doctor|physician|gp|gps|general\s+practitioner|practitioner|nurse|pharmacist|"
+        # Assurance batches 1--6. `prescriber` is a clinical role in all three
+        # files whose opening-role captures contain it. It newly decides
+        # AUTH/2433's narrator subject and AUTH/2728's self-description;
+        # AUTH/3634 already
+        # resolves from the earlier phrase `cardiac specialist` in its capture.
+        r"doctor|physician|gp|gps|general\s+practitioner|practitioner|prescriber|"
+        r"nurse|pharmacist|"
         # the same `regulatory affairs` negative CATEGORY_RULES carries, for the
         # same reason and the same case: AUTH/2240/6/09's opening reads 'A
         # regulatory affairs consultant and scientist/writer, complained', which
@@ -1378,6 +1446,97 @@ HEADING_PAGE_FURNITURE = frozenset(
 MATTER_HEADING_MAX_WORDS = 40
 MATTER_ENUMERATOR_RE = re.compile(r"^\s*\d{1,2}\s*[.):]?\s+\S")
 
+# Assurance repair pass, segmentation class G.  These are section boundaries
+# the frozen L1-derived vocabulary did not name.  They are repaired in L2 so
+# L1 remains a source-faithful, byte-stable extraction layer.
+#
+# The possessive form has three measured holes in l1d.4's otherwise-correct
+# RESPONSE reader: a plural name whose possessive is written ``S’`` rather than
+# ``’S``; an optional ``JOINT``; and a trailing ``(Case AUTH/...)`` scope.  The
+# pattern below is still a headline grammar, not a body-text search: complete
+# string, title-cased/all-capital name tokens, at most eight tokens, and the
+# literal final word RESPONSE.  Corpus-wide it matches 269 headings; 259 are
+# already RESPONSE tokens and the ten listed below are the complete missed set.
+POSSESSIVE_RESPONSE_BOUNDARY_RE = re.compile(
+    r"^[A-Z][A-Za-z0-9&.\-]*(?: [A-Z&][A-Za-z0-9&.\-]*){0,7}"
+    r"(?:['’][Ss]|(?<=[Ss])['’]) (?:JOINT )?RESPONSE"
+    r"(?: \(Case (?:AUTH|CASE)/\d{2,5}/\d{1,2}/\d{2,4}\))?$")
+EXPECTED_POSSESSIVE_RESPONSE_BOUNDARIES = frozenset({
+    ("AUTH-3779-6-23__AUTH-3780-6-23.html", 2773),
+    ("AUTH-3779-6-23__AUTH-3780-6-23.html", 14951),
+    ("AUTH-3824-09-2023.html", 3791),
+    ("AUTH-3860-12-23.html", 3110),
+    ("AUTH-3861-12-23.html", 6989),
+    ("AUTH-3868-12-23.html", 2218),
+    ("AUTH-3882-2-24.html", 13629),
+    ("CASE-0215-06-24.html", 8603),
+    ("CASE-0579-05-25__CASE-0580-05-25.html", 12352),
+    ("CASE-0834-12-25.html", 8440),
+})
+
+# The older HTML export sometimes joins a bare all-capital RESPONSE marker to
+# a complaint carrier with ``<br>``.  L1 records that line break, so L2 can use
+# the source receipt instead of guessing from ordinary prose: the marker must
+# be within one collapsed-text character of a recorded line break.  Excluding
+# the explicit ``RESPONSE FROM [THE] COMPLAINANT`` form leaves exactly nineteen
+# markers in eighteen files / nineteen cases; each was read as the transition
+# from allegation to respondent submission.
+INLINE_RESPONSE_RE = re.compile(r"\bRESPONSE\b")
+RESPONSE_FROM_COMPLAINANT_RE = re.compile(
+    r"RESPONSE\s+FROM\s+(?:THE\s+)?COMPLAINANT\b", re.I)
+EXPECTED_INLINE_RESPONSE_BOUNDARIES = frozenset({
+    ("AUTH-2126-5-08.html", 21821),
+    ("AUTH-2275-11-09.html", 4418),
+    ("AUTH-3218-6-19.html", 34834),
+    ("AUTH-3219-6-19__AUTH-3220-6-19.html", 25276),
+    ("AUTH-3263-11-19.html", 8008),
+    ("AUTH-3365-7-20.html", 16598),
+    ("AUTH-3378-9-20.html", 5807),
+    ("AUTH-3418-11-20.html", 60704),
+    ("AUTH-3488-3-21.html", 21127),
+    ("AUTH-3498-3-21.html", 14552),
+    ("AUTH-3528-6-21.html", 29417),
+    ("AUTH-3544-7-21.html", 5269),
+    ("AUTH-3592-12-21.html", 38918),
+    ("AUTH-3592-12-21.html", 72433),
+    ("AUTH-3624-3-22.html", 14124),
+    ("AUTH-3672-6-22.html", 2832),
+    ("AUTH-3717-12-22.html", 4493),
+    ("AUTH-3743-2-23.html", 1833),
+    ("AUTH-3812-8-23.html", 2082),
+})
+
+# One section has the inverse fused form: matter heading + reference sentence
+# + ``<br>COMPLAINT``.  Starting at the marker would discard the report's own
+# name and reference for matter 2, so this reviewed receipt promotes the matter
+# heading itself.  Both offsets and the literal marker are checked on every
+# build.  It restores AUTH/3522's stated 16764--17553 complaint span without
+# changing L1.
+REVIEWED_INLINE_COMPLAINT_BOUNDARIES = {
+    "AUTH-3522-6-21.html": {
+        "start": 16764, "marker": 17073, "marker_text": "COMPLAINT",
+    },
+}
+
+# A title-case ``Complaint`` occurring after the report's RESPONSE boundary is
+# an internal label in the respondent's reproduced letter, not a new PMCPA
+# matter.  There are eight title-case headings corpus-wide: two occur before a
+# response and remain real complaint boundaries; these six occur inside an
+# active response and are the complete suppressed set.  Upper-case COMPLAINT
+# remains untouched, preserving the older multi-matter cycles.
+EXPECTED_NESTED_COMPLAINT_HEADINGS = frozenset({
+    ("AUTH-3873-01-24.html", 2771),
+    ("AUTH-3891-4-24.html", 1727),
+    ("CASE-0224-07-24.html", 12072),
+    ("CASE-0236-07-24.html", 13887),
+    ("CASE-0246-07-24.html", 3051),
+    ("CASE-0309-10-24.html", 21260),
+})
+POSSESSIVE_RESPONSE_BOUNDARY_FIRED = set()
+INLINE_RESPONSE_BOUNDARY_FIRED = set()
+INLINE_COMPLAINT_BOUNDARY_FIRED = set()
+NESTED_COMPLAINT_HEADING_FIRED = set()
+
 # Was VERBATIM from l1/derive.py. It DIVERGED on 2026-08-10 (DEFECTS R24) and
 # the divergence is deliberate: derive's copy sets the abstract boundary and
 # moving it would re-cut every abstract in the corpus, which is a separate
@@ -1691,7 +1850,13 @@ NO_PREFIX_RE = r"no\s+(?:further\s+|additional\s+|separate\s+|other\s+)?"
 CLAUSE_ITEM_RE = r"(?:Clauses?\s+)?\d{1,2}(?:\.\d{1,2})?"
 CLAUSE_LIST_RE = (
     rf"{CLAUSE_ITEM_RE}"
-    rf"(?:\s*(?:,|and|or|&|,\s*and)\s*(?:consequently\s+|also\s+|further\s+)?{CLAUSE_ITEM_RE})*"
+    # A full stop is a list separator in three reviewed ruling occurrences:
+    # "Clauses 1.11. 9.1 and 2" (AUTH/3078 and AUTH/3079).  Ordinary sentence
+    # splitting still stops at every other full stop; `ruling_sentence_spans`
+    # below rejoins only that exact, guarded typo shape, so this does not turn
+    # the next numbered matter into another clause.
+    rf"(?:\s*(?:,|\.|and|or|&|,\s*and)\s*"
+    rf"(?:consequently\s+|subsequently\s+|also\s+|further\s+)?{CLAUSE_ITEM_RE})*"
 )
 # DEFECTS R28 / audit round-2A finding N1. The 2026-08-10 fix wave gave
 # RULING_RE -- the LEAKAGE pattern -- a generic adverb slot and the
@@ -1785,6 +1950,50 @@ RULED_COORDINATED_RE = re.compile(
     rf"(?:together\s+with|along\s+with|as\s+well\s+as)\s+"
     rf"(?P<neg>{NO_PREFIX_RE})?(?:(?:a|an|the)\s+)?"
     rf"breach(?:es)?\s+of\s+Clauses?\s+(?P<list>{CLAUSE_LIST_RE})", re.I)
+
+# Assurance repair, receipt recall.  The active ruling can be followed by a
+# second, separately polarised head with no second verb:
+#
+#   "ruled no breach of Clauses 13.1 and 9.1 and consequently no breach of
+#    Clause 2"                                           (AUTH/3324/3/20)
+#   "ruled no breach of Clause 6.1 and subsequently no breach of Clause 6.2"
+#                                                         (AUTH/3696/10/22)
+#
+# It is read only when an existing frame has already read a ruling earlier in
+# the same sentence.  That covers active and passive heads, including a small
+# amount of matter/scope text between the first list and the tail, without
+# treating a free-standing party assertion as a ruling.
+RULED_CONNECTED_TAIL_RE = re.compile(
+    rf"\b(?:and|or)\b\s+"
+    rf"(?:(?:consequently|subsequently|also|further|then)\s+)?"
+    rf"(?P<neg>{NO_PREFIX_RE})?(?:(?:a|an|the)\s+)?"
+    rf"breach(?:es)?\s+of\s+Clauses?\s+(?P<list>{CLAUSE_LIST_RE})", re.I)
+
+# The ruling clause can precede a terminal, clause-less disposition.  The
+# reader accepts this only where the same sentence contains an explicit
+# Clause(s) list before the connected "and/; no breach was ruled" tail.  A
+# sentence-start "No breach was ruled" remains deliberately unresolved.
+RULED_BARE_TERMINAL_RE = re.compile(
+    rf"(?:\band\b|[;,])\s*(?P<neg>{NO_PREFIX_RE})"
+    rf"breach(?:es)?\s+w(?:as|ere)\s+{_RULED_ADVERB}ruled\b", re.I)
+
+# A second source idiom puts both the polarity and verb at the end and leaves
+# the clause in the immediately preceding reasoning: "the requirements of
+# Clause 15.5 had not been met and ruled a breach accordingly".  The last
+# explicit Clause(s) list before the phrase is the antecedent.  The measured
+# class has 17 ruling-prose occurrences; 16 carry such an antecedent and one
+# says only "that clause", which stays refused.
+RULED_ACCORDINGLY_RE = re.compile(
+    rf"\bruled\s+(?P<neg>{NO_PREFIX_RE})?(?:(?:a|an|the)\s+)?"
+    rf"breach(?:es)?\s+accordingly\b", re.I)
+
+# One publisher typo drops "of": "; no breach Clause 19.1 ... was ruled"
+# (AUTH/2779/7/15).  Requiring the semicolon/colon and the explicit negative
+# head excludes ordinary "did not breach Clause X" reasoning.
+RULED_MISSING_OF_PASSIVE_RE = re.compile(
+    rf"(?:^|[;:])\s*(?P<neg>{NO_PREFIX_RE})breach(?:es)?\s+Clauses?\s+"
+    rf"(?P<list>{CLAUSE_LIST_RE}){_GAP}{{0,80}}?"
+    rf"\bw(?:as|ere)\s+{_RULED_ADVERB}ruled\b", re.I)
 
 # F5 ANAPHORIC. '... contrary to the requirements of Clause 15.4 as alleged and
 # the Panel ruled no breach of THAT CLAUSE' (AUTH/2823/2/16) and 'a ruling of
@@ -2118,6 +2327,10 @@ def complainant_prose(text):
                       "contactable_superseded": None, "category": None}}
     # Every contactability statement in the opening, in document order.
     statements = []
+    # Preserve an already-sufficient adjectival receipt. The action frame below
+    # was added to close nulls, not to re-source 19 correct False values.
+    has_adjectival_noncontactability = bool(
+        PROSE_NONCONTACTABLE_RE.search(text or ""))
     for sentence in SENTENCE_SPLIT_RE.split(text or ""):
         if not COMPLAINANT_ANCHOR_RE.search(sentence):
             continue
@@ -2151,6 +2364,8 @@ def complainant_prose(text):
         # the bare word, so the two never read the same characters.
         masked = PROSE_NONCONTACTABLE_RE.sub(lambda m: "@" * len(m.group(0)), sentence)
         found = [(m, False) for m in PROSE_NONCONTACTABLE_RE.finditer(sentence)]
+        if not has_adjectival_noncontactability:
+            found += [(m, False) for m in PROSE_COULD_NOT_CONTACT_RE.finditer(sentence)]
         found += [(m, True) for m in PROSE_CONTACTABLE_RE.finditer(masked)]
         for m, value in sorted(found, key=lambda mv: mv[0].start()):
             if not _anchored(sentence, m):
@@ -2159,8 +2374,12 @@ def complainant_prose(text):
                 sentence[max(0, m.start() - 90):m.end() + 60])))
 
         if out["category"] is None:
-            for frame in (PROSE_SELF_DESCRIBE_RE, PROSE_STATED_ROLE_RE,
-                          PROSE_AS_ROLE_COPULA_RE, PROSE_WRITING_AS_RE):
+            for frame, category_frame in (
+                    (PROSE_SELF_DESCRIBE_RE, "self_description"),
+                    (PROSE_STATED_ROLE_RE, "self_description"),
+                    (PROSE_AS_ROLE_COPULA_RE, "self_description"),
+                    (PROSE_WRITING_AS_RE, "self_description"),
+                    (PROSE_APPOSITIVE_DESCRIBED_ROLE_RE, "narrator_subject")):
                 for m in frame.finditer(sentence):
                     best = role_category(m.group("role"))
                     if best is not None:
@@ -2168,7 +2387,7 @@ def complainant_prose(text):
                         out["role_verbatim"] = collapse(m.group("role"))[:80]
                         out["quotes"]["category"] = collapse(
                             sentence[max(0, m.start() - 40):m.end()])
-                        out["category_frame"] = "self_description"
+                        out["category_frame"] = category_frame
                         break
                 if out["category"]:
                     break
@@ -2237,6 +2456,23 @@ def complainant_prose(text):
             if out["category"]:
                 break
 
+    # -- third pass: the measured recent-site passive ---------------------
+    # This stays after both stronger forms above so adding it cannot re-source
+    # any existing self-description or active narrator receipt.  Its exact
+    # grammar and complete firing set are documented at the compiled pattern.
+    if out["category"] is None:
+        for sentence in SENTENCE_SPLIT_RE.split(text or ""):
+            m = PROSE_PASSIVE_HEALTH_PROFESSIONAL_RE.search(sentence)
+            if m is None:
+                continue
+            best = role_category(m.group("role"))
+            if best is not None:
+                out["category"] = best
+                out["role_verbatim"] = collapse(m.group("role"))[:80]
+                out["quotes"]["category"] = collapse(m.group(0))
+                out["category_frame"] = "narrator_subject"
+                break
+
     if statements:
         values = {v for v, _ in statements}
         if len(values) == 1:
@@ -2266,7 +2502,9 @@ def complainant_prose_evidence(report_text, summary_text, body_starts_at):
     The opening is everything before the first canonical body heading -- the
     title line, the banner, the case-summary block and the 'FULL CASE REPORT'
     paragraph that introduces the complainant. Where no body heading was
-    measured the first 3,000 characters stand in.
+    measured the first 3,000 characters stand in. The sole full-report read is
+    the exact, reviewed first-person request to keep the complainant's name
+    anonymous; no generic anonymity phrase is admitted beyond the opening.
     """
     end = body_starts_at if isinstance(body_starts_at, int) and body_starts_at > 0 \
         else PROSE_OPENING_FALLBACK_CHARS
@@ -2277,13 +2515,105 @@ def complainant_prose_evidence(report_text, summary_text, body_starts_at):
         alt = complainant_prose(summary_text or "")
         if any(alt[k] is not None for k in stated):
             alt["source"] = "summary_pane"
-            return alt
+            found = alt
+    # The one reviewed exception to the opening-only window is an explicit
+    # first-person request governing publication of the complainant's name.
+    # Its exact measured grammar is documented at the compiled pattern above.
+    if found["anonymous"] is None:
+        request = PROSE_EXPLICIT_ANONYMITY_REQUEST_RE.search(report_text or "")
+        if request is not None:
+            found["anonymous"] = True
+            found["quotes"]["anonymous"] = collapse(request.group(0))
+            found["source"] += "+explicit_anonymity_request"
     return found
 
 
 # ---------------------------------------------------------------------------
 # segments and the leakage attest (SPEC §6)
 # ---------------------------------------------------------------------------
+
+# Response passages can legitimately repeat outcome-looking words while
+# describing the RESPONDENT'S position: "did not breach", quoted table labels,
+# or a party's account of an earlier ruling.  The assurance re-audit read each
+# passage below end to end.  This is deliberately not a broader regex escape:
+# every decision is pinned to the source file, the complete sliced-text hash,
+# and the exact attest checks that the reviewed passage is allowed to clear.
+# If either the segment boundary or any detector changes, the build refuses
+# until the passage is read again.
+RESPONSE_ATTEST_FALSE_POSITIVES = {
+    ("AUTH-3796-7-23.html", "8825d7fa4b73c6b068b62cf6625b300fac35e63b1f4eebfdc4ce50cfeb1405d2"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3853-11-23.html", "7d3ffe87371ca959424338f35796cb9ff1ae108445da2658b13e2d77af58b2bb"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3864-12-23.html", "a35ddd15f3c31b1c61ac3c6f3cdebd7bfeff600cf806a33799564cd3c8b5c176"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3866-12-23.html", "6e2da3cd8943b95d5a2c2a6448edd06ed82c2764f3a2895b0623c07e8f20c671"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3867-12-23.html", "80b674b2e1828d9d3e4b4624ddf2305459342e73ca49a72b17e70ecf59dd4810"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3879-2-24.html", "d247132e47c4ed89ac3bf85b9594afc24fa9ea282255f50551a3ce34757501f0"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3889-4-24.html", "428a258f761478715ec55bea62fee396e221dedb23655be40314e0cd01d6b61c"): frozenset(("no_ruling_language",)),
+    ("AUTH-3892-4-24.html", "93a641d644f10f1837fce6b1d4e9e44357240bba73536e1659924bd6642c9903"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("AUTH-3893-4-24.html", "1ae40fc4b569501789b3e1c21604d45f03722c12b3d117dac1e83f20baaef80b"): frozenset(("no_ruling_language",)),
+    ("AUTH-3897-5-24.html", "b59cac1f10dcd51e012c1f06d3a651f9badb6f05f5ec51e1ab18691c21b9a263"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3899-5-24.html", "fce5c3380727b601698f8f1ad0bbb3db1e0e4be3a1bd47f9bfa5198fa97b52d5"): frozenset(("no_ruling_language",)),
+    ("AUTH-3901-5-24.html", "f13c3aa3d7eed9f0dfead7f8f7a479074b880fff8056e124484b5d696d5e9785"): frozenset(("no_ruling_language",)),
+    ("AUTH-3905-5-24.html", "28aaf2193700075ec39e210196147feac43b009c33ec03a9279bd202d6d4c756"): frozenset(("no_ruling_language",)),
+    ("AUTH-3917-6-24.html", "7fbb8127947fb11d9ece739a92533bf96c4e6e20f003d2feb09462d26d44623a"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3918-6-24.html", "795b0022f0a627426a8495a00082073175bcdf7eba0ea188908ab0fc281bf7d8"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3919-6-24.html", "ea47ea57b1ae4d041af6c894ea82005d04e72bdf2e71503394b940236e5aa34a"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3920-6-24.html", "fbde191be2014159de37b6383801f5aa271402b30df7985cae0c0bd02b7f43b9"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("AUTH-3921-06-24.html", "10640a9a030dbe8808f5a762febd97640030828c8cdd203dbfc02e850686f747"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3924-6-24.html", "12250c31e62f2843a0f4c23af8f1dc71850d1976a38e07f0f0197fa8d6f7840b"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0209-06-24.html", "677340588f2cdf830ff0b37e258278c71e8f638c5352ad886755eef4228bbc59"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0247-07-24.html", "11657b6ddbfc0d509c36b8f265a9d92ca6814789176a8be368e2934ce00d9078"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0251-07-25.html", "9ae7983326c288a6607135cb36e562f91b345cc3bf290c319b5a4976a48b1209"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0253-08-24.html", "a203ed9bddfd4100434a260e00251545e79d3eb29f8a41039e0cff76c6c0d70e"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0270-08-24.html", "50204c03798359dc46facc91cca18dcbba4a26214d8562afd310a950fc6dea98"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0273-08-24.html", "e2277dc75540efdbf984055853925a3491c4132195ed16ba2aaea2f94ce23647"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0288-09-24.html", "1cc7b889bb13a5332dec28d1144a4d26a1bd8c1087199d5e5cb006a08f69caf6"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0303-09-24.html", "8eb5b188d43136fbe06bb37d80e42415e6c6c350ec684ace669be29ad8b6da93"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0363-11-24.html", "53997d556f8d763397c3bfbd18172c4777076bad289d7895595058c92f655f35"): frozenset(("no_ruling_language",)),
+    ("CASE-0381-11-24.html", "1b24a4e46dc19d7b08f7175f72234f5926b4c11df1a35a5bacc4b6e8ed8a54df"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0387-12-24.html", "5817299699b5159757ae14b0f3c6a2a626482efceadcc085a13eeedf26999f12"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0392-12-24.html", "7957eefd905a2cfd8ad296a6687c6dd0c5c44bbf64ee01671388fc8d950d9b8c"): frozenset(("no_ruling_language",)),
+    ("CASE-0437-01-25.html", "d7cd18ba3f1d3d9fd58d63b5a70a6938aba779da19866a84db48113f715059c2"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0446-01-25.html", "5d51937ed62a4952adac8b0cc7ff3ece49a57dd4206c31060dca579d898d29b3"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0471-02-25.html", "836c1b4a996c195b841c640b37e5275bb9dea2d0b70ce899b7496e4b2873a9ed"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0552-04-25.html", "40963204baf8163dd58838c53b3d8ae1e57aab03beaab86b9abb039e39916245"): frozenset(("no_ruling_language",)),
+    ("CASE-0591-5-25.html", "68e8c7be30da17368193ae75b6d23a131afb9a7e46efca38a645f0e3026b4904"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0596-05-25.html", "f50becf2a1c463036c4fac7b5437de27c4598f4706d7f2fd50e72bb064db4c30"): frozenset(("no_ruling_language",)),
+    ("CASE-0599-05-25.html", "e52ec7097e605ad9038649c24fb50cce39c07f69d53e9dccff0c95f8e3da58dc"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0664-07-25.html", "4c1c59aeee3cc3cd2c5498b03da8cb1ae3c4edc24647b6fb007e29a48f914761"): frozenset(("no_ruling_language",)),
+    ("CASE-0681-08-25.html", "c3704030aa146ee65c39eb81fcfde37ea23c310ce72a0f6b6d7ff104b4b6c2d1"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0694-08-25.html", "088fb348c84a849deb54417712f18433e0e41a62469a860282120c88655ad1a4"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0710-08-25.html", "1ba35ef7a4d99113ec4d61947001cda8ec164105ba63a3cf0821f4589987207c"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0722-09-25.html", "a9709ce206bdb0481b9772a187c91a50a1fdd7fe6987be819a278e3e6810b110"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0761-10-25.html", "239457721a54afc2d97ae80bb194112549bd91f4c36929c97f8e0815dc47fe7c"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0777-10-25.html", "bfb7dfae5d8b3c061b5faa8565a38ff2406c339702868f4e58b4d2d25888e74d"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0836-12-25.html", "91fe19a8adf5e45a3d92e18bc58389040852bb4d6b8ce5f911b3075a6483d9d7"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+}
+RESPONSE_ATTEST_FALSE_POSITIVE_FIRED = set()
+
+
+def apply_response_attest_false_positive(span, file, checks):
+    key = (file, sha_text(span))
+    expected = RESPONSE_ATTEST_FALSE_POSITIVES.get(key)
+    if expected is None:
+        return
+    failed = frozenset(name for name, passed in checks.items() if not passed)
+    if failed != expected:
+        raise SystemExit(
+            "REFUSING: reviewed response-attest decision has drifted for "
+            f"{file} {key[1]}: expected {sorted(expected)}, now {sorted(failed)}; "
+            "re-read the response before trusting the row.")
+    RESPONSE_ATTEST_FALSE_POSITIVE_FIRED.add(key)
+    for name in expected:
+        checks[name] = True
+
+
+def check_response_attest_false_positive_registry():
+    dead = sorted(set(RESPONSE_ATTEST_FALSE_POSITIVES) - RESPONSE_ATTEST_FALSE_POSITIVE_FIRED)
+    if dead:
+        raise SystemExit(
+            "REFUSING: RESPONSE_ATTEST_FALSE_POSITIVES contains stale rows:\n  "
+            + "\n  ".join(f"{file} {digest}" for file, digest in dead)
+            + "\nRe-read the response before trusting the row.")
 
 def leakage_attest(span, pane, start, end, ctx, kind, file=None):
     """The six checks of SPEC §6, computed on the SLICED text.
@@ -2329,6 +2659,8 @@ def leakage_attest(span, pane, start, end, ctx, kind, file=None):
         "no_sanctions_text": not any(c in hay for c in ctx["chips"]),
         "no_outcome_heading": not any(h in hay for h in ctx["outcome_headings"]),
     }
+    if kind == "response":
+        apply_response_attest_false_positive(span, file, checks)
     return {"clean": all(checks.values()), "checks": checks, "checked_at_build": True}
 
 
@@ -2519,7 +2851,84 @@ def panel_ruling_text_markers(rec, der, sections_by_start):
     return out
 
 
-def matter_headings(rec, der):
+def supplemental_html_boundaries(rec, known_starts):
+    """Reviewed RESPONSE/COMPLAINT boundaries absent from l1d.4.
+
+    Every returned offset is pinned either to a complete heading grammar plus
+    its measured firing set, to L1's ``line_breaks`` receipt, or to the one
+    explicitly reviewed complaint row above.  ``known_starts`` prevents a
+    heading already named by L1 from being counted twice.
+    """
+    out = []
+    for sec in rec["sections"]:
+        if sec["pane"] != "report":
+            continue
+        head = (sec.get("heading_text") or "").strip()
+        pos = sec["char_start"]
+        if pos not in known_starts and POSSESSIVE_RESPONSE_BOUNDARY_RE.fullmatch(head):
+            key = (rec["file"], pos)
+            POSSESSIVE_RESPONSE_BOUNDARY_FIRED.add(key)
+            out.append((pos, "RESPONSE"))
+
+        text = sec.get("text") or ""
+        breaks = sec.get("line_breaks") or []
+        for match in INLINE_RESPONSE_RE.finditer(text):
+            marker = sec["char_start"] + match.start()
+            if marker in known_starts:
+                continue
+            if not any(abs(br - match.start()) <= 1 or abs(br - match.end()) <= 1
+                       for br in breaks):
+                continue
+            if RESPONSE_FROM_COMPLAINANT_RE.match(text, match.start()):
+                continue
+            key = (rec["file"], marker)
+            INLINE_RESPONSE_BOUNDARY_FIRED.add(key)
+            out.append((marker, "RESPONSE"))
+
+    reviewed = REVIEWED_INLINE_COMPLAINT_BOUNDARIES.get(rec["file"])
+    if reviewed is not None:
+        pane = rec["panes"]["report"]["text"]
+        marker = reviewed["marker"]
+        marker_text = reviewed["marker_text"]
+        if pane[marker:marker + len(marker_text)] != marker_text:
+            raise SystemExit(
+                "REFUSING: reviewed inline COMPLAINT marker moved in "
+                f"{rec['file']}: expected {marker_text!r} at {marker}, got "
+                f"{pane[marker:marker + len(marker_text)]!r}; re-read the boundary.")
+        start = reviewed["start"]
+        INLINE_COMPLAINT_BOUNDARY_FIRED.add((rec["file"], start))
+        if start not in known_starts:
+            out.append((start, "COMPLAINT"))
+    return out
+
+
+def check_supplemental_boundary_coverage():
+    """Refuse a changed firing set instead of silently changing segmentation."""
+    checks = (
+        ("possessive RESPONSE", EXPECTED_POSSESSIVE_RESPONSE_BOUNDARIES,
+         POSSESSIVE_RESPONSE_BOUNDARY_FIRED),
+        ("inline RESPONSE", EXPECTED_INLINE_RESPONSE_BOUNDARIES,
+         INLINE_RESPONSE_BOUNDARY_FIRED),
+        ("reviewed inline COMPLAINT",
+         frozenset((f, row["start"])
+                   for f, row in REVIEWED_INLINE_COMPLAINT_BOUNDARIES.items()),
+         INLINE_COMPLAINT_BOUNDARY_FIRED),
+        ("nested title-case Complaint", EXPECTED_NESTED_COMPLAINT_HEADINGS,
+         NESTED_COMPLAINT_HEADING_FIRED),
+    )
+    failures = []
+    for name, expected, fired in checks:
+        if fired != expected:
+            failures.append(
+                f"{name}: missing={sorted(expected - fired)} extra={sorted(fired - expected)}")
+    if failures:
+        raise SystemExit(
+            "REFUSING: supplemental section-boundary firing set changed; read every "
+            "new or missing member before changing segmentation:\n  "
+            + "\n  ".join(failures))
+
+
+def matter_headings(rec, der, segments):
     """[(char_start, char_end, text)] -- the report's own MATTER headings.
 
     R28 stage 1. A multi-matter report names each matter before running the
@@ -2528,8 +2937,8 @@ def matter_headings(rec, der):
     here is composed: the value is a heading verbatim, with its offsets, and a
     consumer can re-slice it.
 
-    The rule is five existing witnesses conjoined, not a new classifier, and
-    each of the four filters was measured on the whole corpus:
+    The rule is six source-backed constraints conjoined, not a new classifier,
+    and each filter was measured on the whole corpus:
 
       (a) the NEXT report section is a structural boundary (l1d's own
           normalised token) -- this is what makes it a MATTER heading rather
@@ -2547,16 +2956,30 @@ def matter_headings(rec, der):
           2,309 to 642 and what it removes is page furniture and stray prose
           ('Teva', 'FINAL COMMENTS FROM COMPLAINANT', 'FULL CASE REPORT').
       (e) not a structural or page-furniture heading itself.
+      (f) not strictly INSIDE a complaint/response segment.  A heading at the
+          exact segment start may name the matter that the segment opens; a
+          respondent's numbered subheading after that start cannot name what a
+          later Panel ruling is "in regard to".  This segment-containment test
+          removes the 37-case all-regards-in-response class (and 14 analogous
+          all-in-complaint cases), without a case-number table.
 
-    Result: 642 headings over 216 files. A ruling with no matter heading before
-    it -- every single-matter report, and all 13 PDF substitutions, whose flow
-    text carries no section structure at all -- gets `regard: null`. That is the
-    honest value: the report states no name for the regard, and the quote is
-    the receipt either way.
+    Before (f), the measured inventory was 642 headings over 216 files.  On the
+    frozen pre-repair segment inventory, (f) removes 66 party subheadings across
+    59 files (44 inside responses and 22 inside complaints); the repaired
+    segment inventory is then authoritative at build time.  A ruling with no
+    matter heading before it -- every single-matter report, and all 13 PDF
+    substitutions, whose flow text carries no section structure at all -- gets
+    `regard: null`. That is the honest value: the report states no name for the
+    regard, and the quote is the receipt either way.
     """
     norm = {s["index"]: s["heading_normalised"] for s in der["sections"] if s["pane"] == "report"}
     secs = sorted([s for s in rec["sections"] if s["pane"] == "report"],
                   key=lambda s: s["char_start"])
+    party_spans = [(s["ref"]["char_start"], s["ref"]["char_end"])
+                   for s in segments
+                   if s["ref"]["pane"] == "report"
+                   and s["kind"] in ("complaint", "response")]
+    party_starts = {start for start, _end in party_spans}
     out = []
     for i, s in enumerate(secs):
         token = norm.get(s["index"])
@@ -2572,9 +2995,13 @@ def matter_headings(rec, der):
         if not MATTER_ENUMERATOR_RE.match(head):
             continue
         nxt = norm.get(secs[i + 1]["index"]) if i + 1 < len(secs) else None
-        if nxt not in BOUNDARY_KIND and nxt not in POSITIONAL_BOUNDARY_KIND:
+        if nxt not in BOUNDARY_KIND and nxt not in POSITIONAL_BOUNDARY_KIND \
+                and s["char_start"] not in party_starts:
             continue
-        out.append((s["char_start"], s["char_start"] + len(head), head))
+        end = s["char_start"] + len(head)
+        if any(start < s["char_start"] and end <= stop for start, stop in party_spans):
+            continue
+        out.append((s["char_start"], end, head))
     return out
 
 
@@ -2608,6 +3035,8 @@ def html_boundaries(rec, der):
         token = norm.get(s["index"])
         if token in BOUNDARY_KIND or token in POSITIONAL_BOUNDARY_KIND:
             tokens.append((s["char_start"], token))
+    known_starts = {start for start, _token in tokens}
+    tokens.extend(supplemental_html_boundaries(rec, known_starts))
     tokens.sort(key=lambda kv: kv[0])
     # R30. Markers the heading finder could not see, because the carrier
     # swallowed them. Added as PANEL_RULING tokens so they go through the same
@@ -2618,6 +3047,25 @@ def html_boundaries(rec, der):
         known = {p for p, _ in tokens}
         tokens = sorted(tokens + [(p, "PANEL_RULING") for p in marker_starts - known],
                         key=lambda kv: kv[0])
+
+    # Recent response letters contain their own title-case ``Complaint``
+    # subheading.  l1d.4 (case-insensitively) names it COMPLAINT, but once a
+    # real RESPONSE boundary has opened, that nested label cannot start a new
+    # PMCPA complaint.  The all-capitals form used by genuine older
+    # complaint/response cycles is deliberately unaffected.
+    heading_at = {s["char_start"]: (s.get("heading_text") or "").strip()
+                  for s in rec["sections"] if s["pane"] == "report"}
+    filtered = []
+    active = None
+    for start, token in tokens:
+        if token == "COMPLAINT" and active == "RESPONSE" \
+                and heading_at.get(start) == "Complaint":
+            NESTED_COMPLAINT_HEADING_FIRED.add((rec["file"], start))
+            continue
+        filtered.append((start, token))
+        if token in BOUNDARY_KIND or token in POSITIONAL_BOUNDARY_KIND:
+            active = token
+    tokens = filtered
 
     grounds = [p for p, t in tokens if t == "APPEAL_GROUNDS"]
     panel = [p for p, t in tokens if t == "PANEL_RULING"]
@@ -3018,6 +3466,20 @@ def resolve_that_clause(sentence, match):
     return last
 
 
+def explicit_clause_list_before(sentence, end):
+    """The last explicit Clause(s) list ending before ``end``.
+
+    This is the bounded antecedent used by the two clause-less terminal ruling
+    idioms below.  It never reaches into another sentence and never treats a
+    bare number as a clause.
+    """
+    last = []
+    pat = re.compile(rf"\bClauses?\s+(?P<list>{CLAUSE_LIST_RE})", re.I)
+    for m in pat.finditer(sentence, 0, end):
+        last = clause_tokens(m.group("list"))
+    return last
+
+
 def sentence_statements(sentence):
     """[(polarity, clause, frame)] stated by one sentence, in frame order.
 
@@ -3041,10 +3503,22 @@ def sentence_statements(sentence):
         if clause and not any(p == polarity and c == clause for p, c, _ in out):
             out.append((polarity, clause, frame))
 
+    ruled_anchors = []
     for name, pat in RULED_FRAMES + (("coordinated", RULED_COORDINATED_RE),):
         for m, polarity in frame_statements(pat, sentence):
+            ruled_anchors.append((m.end(), polarity))
             for clause in clause_tokens(m.group("list")):
                 add(polarity, clause, name)
+    # A separately polarised tail belongs to a ruling only when a core frame
+    # has already established one earlier in this sentence.  The source puts
+    # these tails after both active and passive heads, sometimes with scope
+    # words between the first clause list and the conjunction.
+    for tail in RULED_CONNECTED_TAIL_RE.finditer(sentence):
+        if not any(end <= tail.start() for end, _ in ruled_anchors):
+            continue
+        polarity = "no_breach" if tail.group("neg") else "breach"
+        for clause in clause_tokens(tail.group("list")):
+            add(polarity, clause, "connected_repeated_tail")
     # Wave C. The passive uphold frame is applied here rather than in
     # RULED_FRAMES because it carries a guard the others do not: a conditional
     # 'if' before the match makes the sentence a party's argument about a
@@ -3063,6 +3537,18 @@ def sentence_statements(sentence):
     for m in RULED_NOT_WARRANTED_RE.finditer(sentence):
         for clause in clause_tokens(m.group("list")):
             add("no_breach", clause, "not_warranted")
+    # Clause-less terminal dispositions.  Both are accepted only with an
+    # explicit same-sentence antecedent; otherwise they add nothing.
+    for m in RULED_BARE_TERMINAL_RE.finditer(sentence):
+        for clause in explicit_clause_list_before(sentence, m.start()):
+            add("no_breach", clause, "bare_terminal")
+    for m in RULED_ACCORDINGLY_RE.finditer(sentence):
+        polarity = "no_breach" if m.group("neg") else "breach"
+        for clause in explicit_clause_list_before(sentence, m.start()):
+            add(polarity, clause, "accordingly_antecedent")
+    for m in RULED_MISSING_OF_PASSIVE_RE.finditer(sentence):
+        for clause in clause_tokens(m.group("list")):
+            add("no_breach", clause, "missing_of_passive")
     return out
 
 
@@ -3500,6 +3986,9 @@ DUAL_READ = {
         "precedent citation: the no-breach half is Case AUTH/2355/9/10's ruling, quoted",
     ("AUTH/2445/10/11", "3.1", "panel"):
         "precedent citation: the breach half is this Panel's ruling in Case AUTH/2424/8/11",
+    ("AUTH/2589/3/13", "25", "panel"):
+        "the two breach hits recap Case AUTH/2442/10/11 and are independently refused by "
+        "RULING_CONTEXT_REFUSALS; this case's own Panel ruling is no breach",
     ("AUTH/2804/11/15", "15.9", "panel"):
         "precedent citation: the breach half is Case AUTH/2756/5/15's ruling",
     ("AUTH/2833/4/16", "2", "panel"):
@@ -3552,6 +4041,7 @@ DUAL_READ = {
     ("AUTH/1862/7/06", "9.1", "appeal_board"): None,
     ("AUTH/1862/7/06", "22", "appeal_board"): None,
     ("AUTH/2141/7/08", "7.2", "appeal_board"): None,
+    ("AUTH/2141/7/08", "9.1", "appeal_board"): None,
     ("AUTH/2246/7/09", "9.1", "appeal_board"): None,
     ("AUTH/2273/10/09", "3.2", "appeal_board"): None,
     ("AUTH/2273/10/09", "7.2", "appeal_board"): None,
@@ -3704,8 +4194,253 @@ def dual_screen(chunks):
     return sorted(c for c, p in found.items() if len(p) == 2)
 
 
+# Assurance repair (2026-08-12): the outcome slots silently omit these
+# clause-level disposals. This is deliberately a CLOSED read list, not a new
+# prose-mining rule. Each entry was read against the complete report pane; the
+# complete-pane digest and every material quote are checked while that pane is
+# resident in `digest`, and `build_cases` refuses a dead entry. An accepted
+# entry may create exactly one otherwise-absent verdict row. A refused entry is
+# just as durable: it must remain absent, so a later generic widening cannot
+# quietly admit it.
+#
+# `panel` and `appeal_board` are expected results, not overrides. The ordinary
+# body-attribution reader still has to produce them (with the unappealed rule as
+# its documented exception), and the exact row is checked after construction.
+# The reviewed Code edition is necessarily part of this decision: the
+# structured clause-year witnesses do not exist for a clause the slots omit.
+PROSE_ONLY_VERDICT_READ = {
+    ("AUTH/2337/7/10", "2"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "be983dbd1d631257a61b8afb150511ba45d05785238e889dc1915fc594cc6d8d",
+        "quotes": (
+            "Given that the item was not in its final form and had not been used as described "
+            "above the Panel ruled no breach of Clauses 2, 7.2, 9.10 and 22.1 of the Code.",
+        ),
+        "reason": "the Panel expressly disposed of omitted Clause 2 in the same no-breach ruling as listed Clause 7.2",
+    },
+    ("AUTH/2337/7/10", "9.10"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "be983dbd1d631257a61b8afb150511ba45d05785238e889dc1915fc594cc6d8d",
+        "quotes": (
+            "Given that the item was not in its final form and had not been used as described "
+            "above the Panel ruled no breach of Clauses 2, 7.2, 9.10 and 22.1 of the Code.",
+        ),
+        "reason": "the Panel expressly disposed of omitted Clause 9.10 in the same no-breach ruling as listed Clause 7.2",
+    },
+    ("AUTH/2337/7/10", "22.1"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "be983dbd1d631257a61b8afb150511ba45d05785238e889dc1915fc594cc6d8d",
+        "quotes": (
+            "Given that the item was not in its final form and had not been used as described "
+            "above the Panel ruled no breach of Clauses 2, 7.2, 9.10 and 22.1 of the Code.",
+        ),
+        "reason": "the Panel expressly disposed of omitted Clause 22.1 in the same no-breach ruling as listed Clause 7.2",
+    },
+    ("AUTH/2220/3/09", "18.1"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "03cf6259f006761f4ab78bce44e57d50a6043bdd013310c38369da99c6c36d09",
+        "quotes": (
+            "The Panel ruled no breach of Clauses 18.1 and 18.4.",
+            "The Panel ruled no breach of Clauses 15.2 and 18.1 of the Code on this point.",
+            "No breach of Clauses 18.1 and 19.1 were ruled.",
+        ),
+        "reason": "three separately disposed matters all rule no breach of omitted Clause 18.1",
+    },
+    ("AUTH/2316/5/10", "7.4"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "cb1087e2d7840b80c9b7032db2761194c213bf2fa736b702dd1c774ab2b11f02",
+        "quotes": (
+            "Although noting that extreme dissatisfaction was usually required before an individual "
+            "was moved to complain, on the basis of the information before it the Panel ruled no "
+            "breach of Clauses 7.2 and 7.4 of the Code.",
+        ),
+        "reason": "the Panel expressly included omitted Clause 7.4 in its no-breach disposal",
+    },
+    ("AUTH/1855/6/06", "7.9"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2006,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "54dc428187e1761b5339053c2195a0754f5fe9153d1b96059e2a39f3f4753836",
+        "quotes": (
+            "Thus the Panel ruled no breach of Clauses 7.2, 7.8, 7.9 and 7.10 of the Code.",
+        ),
+        "reason": "the unappealed 7.9 disposal is explicit although other clauses in this appealed case were challenged",
+    },
+    ("AUTH/1855/6/06", "9.1"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2006,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "54dc428187e1761b5339053c2195a0754f5fe9153d1b96059e2a39f3f4753836",
+        "quotes": (
+            "The Panel did not consider that the page failed to maintain a high standard and thus "
+            "no breach of Clause 9.1 of the Code was ruled.",
+            "The Panel did not consider that the pages were misleading and thus ruled no breach "
+            "of Clauses 7.2, 7.4 and 9.1 of the Code.",
+        ),
+        "reason": "two separately disposed matters both rule no breach of omitted Clause 9.1; neither was appealed",
+    },
+    ("AUTH/1884/8/06", "15.2"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2006,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "c6c4b3b86a3d43df69e2c9ea56b514ab61cee04dd7814cfd9b1df03837e479d4",
+        "quotes": (
+            "The Panel considered that the evidence before it was such that it was not possible to "
+            "determine whether on the balance of probabilities the representative’s conduct amounted "
+            "to a breach of Clauses 15.2 and 15.4 of the Code and thus no breach of these clauses was ruled.",
+            "The Panel thus ruled no breach of Clauses 15.2 and 15.4 of the Code.",
+            "The Panel did not know where the truth lay and thus ruled no breach of Clauses 15.2 "
+            "and 15.4 of the Code.",
+            "The Panel ruled no breach of Clauses 15.2 and 15.4 of the Code.",
+        ),
+        "reason": "every disposing strand for omitted Clause 15.2 is no breach",
+    },
+    ("AUTH/2634/8/13", "15.9"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2012,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "97470a66bd1e6025ca39c4019741b678949f75e7a046e752180c0fea205b1e6e",
+        "quotes": (
+            "The Panel ruled no breach of Clauses 7.2, 7.4, 7.9, 15.2 and 15.9 of the Code.",
+        ),
+        "reason": "the Panel expressly included omitted Clause 15.9 in its no-breach disposal",
+    },
+    ("AUTH/3587/12/21", "12.6"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2021,
+        "panel": "no_breach", "appeal_board": "no_breach",
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "2bd43b24d74f45ca02a3a1cc2d6c149539dbb87abf75fe17123640fa9637a7d0",
+        "quotes": (
+            "It therefore ruled no breach of Clauses 12.1, 12.3, 12.4 and 12.6 of the 2021 Code.",
+            "The Appeal Board agreed with the Panel’s comments above and upheld its rulings of no "
+            "breach of Clauses 2, 3.3, 5.1, 12.1, 12.3, 12.4 and 12.6 of the 2021 Code.",
+        ),
+        "reason": "the Panel's omitted 12.6 no-breach ruling was expressly upheld by the Appeal Board",
+    },
+    ("AUTH/2667/11/13", "2"): {
+        "decision": "accept", "final": "no_breach", "code_year": None,
+        "panel": "no_breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "3cc2fef8522111bd70ceee74d4f353053687d87c2662ad48bab93b08cb81babc",
+        "quotes": (
+            "Thus the Panel ruled no breach of Clauses 9.1 and 2 of the 2006 Code.",
+            "The Panel ruled no breach of Clauses 21.3 and consequently no breach of Clauses 9.1 "
+            "and 2 of the 2011 Code in relation to NCT00472290.",
+            "The results had been disclosed and the Panel considered that there was no breach of "
+            "Clause 2 and ruled accordingly.",
+        ),
+        "reason": "Clause 2 is no breach, but its disposals span the 2006 and 2011 Codes and the unqualified consequence cannot choose one edition",
+    },
+    ("AUTH/3258/10/19", "7.9"): {
+        "decision": "accept", "final": "breach", "code_year": 2019,
+        "panel": "breach", "appeal_board": None,
+        "dual_ruling": False, "dual_ruling_appeal_board": False,
+        "source_sha256": "b0f3f0c2ba2929d9ab8fac9dd560488cd5ffb700ed115465940f068385ed3d26",
+        "quotes": (
+            "The available evidence was not reflected in the formulary decision guide and the Panel "
+            "therefore ruled a breach of the Code.",
+            "The Panel did not consider that the complainant had made an allegation with regard to "
+            "Clause 7.9 in this regard and therefore made no ruling.",
+        ),
+        "reason": "matter 3 rules breach of 7.9; the later made-no-ruling sentence belongs to a different allegation and is not a contrary polarity",
+    },
+    ("AUTH/3615/3/22", "9.1"): {
+        "decision": "refuse",
+        "source_sha256": "b02a3bd51cd6b114559c4e75b46b442af2f460c41723ab3061422bb3d7c61cbb",
+        "quotes": (
+            "The Panel consequently ruled no breach of Clauses 9.1 and 2 of the 2019 Code.",
+            "Turning to the case now before it, Case AUTH/3615/3/22, the Panel considered that "
+            "there was a difference to the previous case (Case AUTH/3504/4/21).",
+        ),
+        "reason": "the 9.1 sentence recaps AUTH/3504/4/21 before the explicit pivot to this case; AUTH/3615's corresponding current-Code allegation is Clause 5.1",
+    },
+}
+
+
 def sentence_key(sentence):
     return hashlib.sha256(collapse(sentence).encode("utf-8")).hexdigest()[:12]
+
+
+# Assurance repair: the source typo "Clauses 1.11. 9.1 and 2" is split into
+# two sentences by the ordinary punctuation rule, leaving the latter clauses
+# without a ruling receipt.  The complete corpus population of the *ruling*
+# shape is three occurrences: one in AUTH/3078 and two in AUTH/3079, all the
+# same sentence after whitespace collapse.  Rejoin only those exact reviewed
+# file/hash pairs and require the expected multiplicity at end of build.
+STRAY_PERIOD_RULING_READ = {
+    ("AUTH-3078-9-18.html", "beeaabcacae9"): 1,
+    ("AUTH-3079-9-18.html", "beeaabcacae9"): 2,
+}
+STRAY_PERIOD_RULING_FIRED = Counter()
+STRAY_PERIOD_LEFT_RE = re.compile(
+    r"\b(?:ruled|upheld)\b[^\n]{0,300}\bClauses?\s+"
+    r"\d{1,2}(?:\.\d{1,2})?\.$", re.I)
+STRAY_PERIOD_RIGHT_RE = re.compile(
+    r"\d{1,2}(?:\.\d{1,2})?\s+(?:and|or|&)\b", re.I)
+
+
+def ruling_sentence_spans(text, file):
+    """[(sentence, start)] with only reviewed stray-period lists rejoined."""
+    raw = []
+    at = 0
+    for gap in SENTENCE_SPLIT_RE.finditer(text):
+        raw.append((text[at:gap.start()], at, text[gap.start():gap.end()]))
+        at = gap.end()
+    raw.append((text[at:], at, ""))
+
+    out, i = [], 0
+    while i < len(raw):
+        sentence, start, gap = raw[i]
+        if i + 1 < len(raw) and STRAY_PERIOD_LEFT_RE.search(sentence) \
+                and STRAY_PERIOD_RIGHT_RE.match(raw[i + 1][0]):
+            merged = sentence + gap + raw[i + 1][0]
+            key = (file, sentence_key(merged))
+            if key not in STRAY_PERIOD_RULING_READ:
+                raise SystemExit(
+                    f"REFUSING: unreviewed stray-period ruling list in {file}: "
+                    f"{collapse(merged)!r}")
+            STRAY_PERIOD_RULING_FIRED[key] += 1
+            out.append((merged, start))
+            i += 2
+            continue
+        out.append((sentence, start))
+        i += 1
+    return out
+
+
+# Assurance repair: sentence-local precedent detection cannot see a recap
+# whose foreign case number lives in the preceding sentence or heading.  Nor
+# can a segment kind prove that a hypothetical in an appellant's submissions
+# is an adjudicator speaking.  Each row below was read in its surrounding
+# section and is pinned to the complete collapsed-sentence hash.  Suppressing
+# only these sentences leaves the later, same-case ruling receipts intact.
+RULING_CONTEXT_REFUSALS = {
+    ("AUTH/2589/3/13", "c9398635c0c2"):
+        "recap of AUTH/2442/10/11, identified in the preceding sentence; not this case's ruling",
+    ("AUTH/2589/3/13", "3cdfc60f3ae0"):
+        "second recap ruling from AUTH/2442/10/11; not this case's ruling",
+    ("AUTH/2593/4/13", "a13ff44ceda5"):
+        "inside the headed PANEL RULING IN CASE AUTH/2590/3/13 recap block",
+    ("AUTH/2593/4/13", "41046e1bacd5"):
+        "inside the headed PANEL RULING IN CASE AUTH/2590/3/13 recap block",
+    ("AUTH/2960/6/17", "bb08f63974b7"):
+        "the preceding sentence identifies Case AUTH/2949/3/17; this is that case's ruling",
+    ("AUTH/3615/3/22", "6fe41f45a38b"):
+        "precedent recap immediately before 'Turning to the case now before it, Case AUTH/3615/3/22'",
+    ("AUTH/2739/11/14", "46d6b238664c"):
+        "Daiichi-Sankyo's hypothetical submission ('Even if the Appeal Board ruled'), not a Board ruling",
+}
+RULING_CONTEXT_REFUSALS_FIRED = set()
 
 
 def precedent_disposal(sentence, own_serials):
@@ -3762,19 +4497,21 @@ def ruling_polarities(texts, default_body, own_cases, appeal_side=False, mixed=N
     own_serials = {tuple(c.split("/")[:2]) for c in own_cases}
     for chunk in texts:
         text, base = chunk["text"], chunk["start"]
-        sentences = SENTENCE_SPLIT_RE.split(text)
-        # Offsets are recovered by walking the split, not by searching for the
-        # sentence: a sentence repeated verbatim in one segment (AUTH/2334's
-        # 'No breach of Clauses 3.2, 7.2 and 7.10 were ruled.' twice) would
-        # otherwise take the first copy's offsets for both.
-        starts, at = [], 0
-        for s in sentences:
-            starts.append(at)
-            at += len(s)
-            gap = SENTENCE_SPLIT_RE.match(text, at)
-            at = gap.end() if gap is not None else at
+        sentence_rows = ruling_sentence_spans(text, chunk["file"])
+        sentences = [s for s, _ in sentence_rows]
+        # Offsets come from the splitter rather than a text search: a sentence
+        # repeated verbatim in one segment (AUTH/2334 does this) must retain
+        # the position of each occurrence.  The reviewed stray-period joiner
+        # above likewise retains the first half's exact start.
+        starts = [at for _, at in sentence_rows]
         for i, sentence in enumerate(sentences):
             if "breach" not in sentence.lower():
+                continue
+            key = sentence_key(sentence)
+            refused_for = [(c, key) for c in own_cases
+                           if (c, key) in RULING_CONTEXT_REFUSALS]
+            if refused_for:
+                RULING_CONTEXT_REFUSALS_FIRED.update(refused_for)
                 continue
             disposal, foreign = precedent_disposal(sentence, own_serials)
             if disposal == "undertaking_subject":
@@ -3861,6 +4598,39 @@ def digest(rec, der, pdf):
     ident = rec["identity"]
     summary_text = rec["panes"]["summary"]["text"]
     report_text = rec["panes"]["report"]["text"]
+    report_text_sha256 = hashlib.sha256(report_text.encode("utf-8")).hexdigest()
+    # The prose-only registry is pinned to the COMPLETE report pane, not a
+    # reduced receipts dict. Check its human-readable quotes too: a correct
+    # digest beside a mistyped quote would be an unauditable decision even
+    # though it could not drift onto a different source.
+    for case in ident["filename_case_numbers"]:
+        for (review_case, clause), review in PROSE_ONLY_VERDICT_READ.items():
+            if review_case != case:
+                continue
+            if review["decision"] not in ("accept", "refuse"):
+                raise SystemExit(
+                    f"REFUSING: PROSE_ONLY_VERDICT_READ[{review_case}, {clause}] has invalid "
+                    f"decision {review['decision']!r}")
+            if report_text_sha256 != review["source_sha256"]:
+                raise SystemExit(
+                    f"REFUSING: PROSE_ONLY_VERDICT_READ[{review_case}, {clause}] was reviewed "
+                    f"against report sha {review['source_sha256']}, but {rec['file']} now hashes "
+                    f"to {report_text_sha256}. Re-read the complete report before re-pinning it.")
+            for quote in review["quotes"]:
+                if quote not in report_text:
+                    raise SystemExit(
+                        f"REFUSING: PROSE_ONLY_VERDICT_READ[{review_case}, {clause}] quote is "
+                        f"not verbatim in {rec['file']}: {quote!r}")
+    dates = rec["dates"]
+    if pdf is not None:
+        # C8/C9 source substitution applies to receipts as well as narrative.
+        # In particular AUTH/2602's HTML pane is AUTH/2603's report and says
+        # completed 15 July; its own PDF says 17 June, agreeing with both
+        # canonical slots.  Keeping the foreign HTML trailer manufactured a
+        # same-year discrepancy that did not exist in the case being built.
+        dates = dict(rec["dates"])
+        dates["report_trailer_lines"] = pdf_trailer_lines(
+            pdf["flow_text"], pdf["file"])
 
     # Key info-holder items by LABEL: `order` is not a stable slot index (order
     # 3 is 'Appeal hearing' on 1838 pages, 'Review' on 26, 'Applicable Code
@@ -3993,7 +4763,7 @@ def digest(rec, der, pdf):
     # The regard: the last matter heading at or before the ruling sentence, in
     # the same pane. `null` where the report names no matter (single-matter
     # reports; the 13 PDF substitutions, whose flow carries no sections).
-    matters = matter_headings(rec, der)
+    matters = matter_headings(rec, der, segments)
     for r in ruling_records:
         prior = [h for h in matters if h[0] <= r["char_start"]] if r["pane"] == "report" else []
         head = prior[-1] if prior else None
@@ -4051,6 +4821,7 @@ def digest(rec, der, pdf):
 
     return {
         "file": rec["file"],
+        "report_text_sha256": report_text_sha256,
         "cases": list(ident["filename_case_numbers"]),
         "identity": ident,
         "meta_respondent": rec["meta"]["cludo:respondent"],
@@ -4060,7 +4831,7 @@ def digest(rec, der, pdf):
         "meta_code_year": rec["meta"]["cludo:applicable_code_year"],
         "info_code_year": (by_label.get("Applicable Code year") or {}).get("value"),
         "report_title_line": report_title_line,
-        "dates": rec["dates"],
+        "dates": dates,
         "appeal": rec["appeal"],
         "appeal_headings": appeal_headings,
         "edition_prose_decisive": {str(y): q for y, q in sorted(dec_years.items())},
@@ -4618,6 +5389,23 @@ TRAILER_DATE_RE = {
     "received": re.compile(r"Complaints?\s+received\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})", re.I),
     "completed": re.compile(r"Cases?\s+completed\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4})", re.I),
 }
+# A PDF substitution is the report for that case; the HTML report pane is
+# empty or belongs to another case.  Date receipts must therefore come from
+# the same PDF flow as the segments and ruling receipts.  This exact line
+# grammar finds received+completed in 12 of the 13 flows and completed-only in
+# AUTH/3015's voluntary-admission report.  Every flow has a completion witness.
+PDF_TRAILER_DATE_LINE_RE = re.compile(
+    r"\b(?:Complaints?|Cases?)\s+(?:received|completed)\s+"
+    r"\d{1,2}\s+[A-Za-z]+\s+\d{4}\b", re.I)
+
+
+def pdf_trailer_lines(flow, file):
+    lines = [m.group(0) for m in PDF_TRAILER_DATE_LINE_RE.finditer(flow or "")]
+    if not any(TRAILER_DATE_RE["completed"].search(line) for line in lines):
+        raise SystemExit(
+            f"REFUSING: PDF substitute {file} has no parsed completion trailer; "
+            "do not fall back to its absent/foreign HTML report pane.")
+    return lines
 # ... and the COMPOSITE form, where the shared trailer gives each case its own
 # date: 'Cases completed AUTH/2154/8/08 7 October 2008 AUTH/2155/8/08 9 October
 # 2008'. The date does not follow the word 'completed' there, it follows a case
@@ -5120,15 +5908,17 @@ def arbitrate_year(clause, witnesses, d, case_year, inventory, reviewed=None):
 
 def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
                      arbitration_log=None, case_number=None,
-                     year_reviews=None, used_adjudications=None, emit_shas=None):
+                     year_reviews=None, used_adjudications=None, emit_shas=None,
+                     used_prose_reviews=None):
     """C11/C12, SPEC §5. The one hard algorithm -- rewritten in l2.2 (DEFECTS D3).
 
     Which sources may CREATE a row is the first decision, and it is not
     symmetric with which sources are read. The info-holder clause lists and the
     meta clause CSVs create rows: they are the case's own statement of its
-    outcome. The outcome table and the banner headings are CROSS-CHECKS (SPEC
-    §5 closing paragraph) -- a table row naming a clause no list states raises a
-    warning rather than inventing a verdict.
+    outcome. PROSE_ONLY_VERDICT_READ is the sole, finite reviewed exception,
+    pinned to complete-report hashes. The outcome table and banner headings are
+    CROSS-CHECKS (SPEC §5 closing paragraph) -- a table row naming a clause no
+    list states still raises a warning rather than inventing a verdict.
 
     What changed. The lists state the case's FINAL position, and l2.1 read that
     position BACKWARDS onto the Panel: a clause in both lists on a case appealed
@@ -5155,6 +5945,11 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
     BENCH that refuses to make a binary item out of it (bench/generate.py).
     """
     case_year = code_year["value"]
+    prose_reviews = {
+        clause: review
+        for (review_case, clause), review in PROSE_ONLY_VERDICT_READ.items()
+        if review_case == case_number
+    }
 
     chip_year, chip_slug = {}, {}
     for clause, year, slug in d["breach_chips"] + d["no_breach_chips"]:
@@ -5185,7 +5980,12 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
         receipts depends on the year, so hoisting them changes no sha.
         """
         reviewed = None
+        prose_review = prose_reviews.get(clause)
         adj = (year_reviews or {}).get((case_number, f"verdicts[{clause}].code_year"))
+        if prose_review is not None and adj is not None:
+            raise SystemExit(
+                f"REFUSING: {case_number} clause {clause} is decided by both "
+                "PROSE_ONLY_VERDICT_READ and a code-year adjudication")
         if adj is not None:
             got = receipts_sha(row_sources)
             if emit_shas is not None:
@@ -5210,6 +6010,27 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
                 witnesses.setdefault(y, []).append("outcome_table_scope")
         if case_year is not None:
             witnesses.setdefault(case_year, []).append("case_code_year")
+        if prose_review is not None:
+            year = prose_review["code_year"]
+            note = prose_review["reason"]
+            basis = "year_prose_only_reviewed"
+            if year is None:
+                warn("code_year_arbitration_refused", f"{clause}: {note}")
+            elif clause in chip_year and chip_year[clause] != year:
+                warn("code_year_arbitration_displaced_chip",
+                     f"{clause}: chip {chip_year[clause]} -> {year} ({basis})")
+            if arbitration_log is not None:
+                arbitration_log.append({
+                    "case_number": case_number,
+                    "clause": clause,
+                    "resolved_code_year": year,
+                    "basis": basis,
+                    "witnesses": {str(y): sorted(names)
+                                  for y, names in sorted(witnesses.items())},
+                    "note": note,
+                    "quotes": list(prose_review["quotes"]),
+                })
+            return year, basis, note
         year, basis, note, quotes = arbitrate_year(clause, witnesses, d, case_year, inventory,
                                                    reviewed)
         if basis != "year_uncontested":
@@ -5236,8 +6057,21 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
 
     breach_chip_clauses = {c for c, _, _ in d["breach_chips"]}
     no_breach_chip_clauses = {c for c, _, _ in d["no_breach_chips"]}
-    stated_breach = set(d["flat_breach"]) | breach_chip_clauses
-    stated_no_breach = set(d["flat_no_breach"]) | no_breach_chip_clauses
+    slot_stated_breach = set(d["flat_breach"]) | breach_chip_clauses
+    slot_stated_no_breach = set(d["flat_no_breach"]) | no_breach_chip_clauses
+    stated_breach = set(slot_stated_breach)
+    stated_no_breach = set(slot_stated_no_breach)
+    for clause, review in prose_reviews.items():
+        if clause in slot_stated_breach or clause in slot_stated_no_breach:
+            raise SystemExit(
+                f"REFUSING: PROSE_ONLY_VERDICT_READ[{case_number}, {clause}] is no longer "
+                "prose-only: an outcome slot or chip now states the clause. Re-read and retire "
+                "or replace the registry entry.")
+        if used_prose_reviews is not None:
+            used_prose_reviews.add((case_number, clause))
+        if review["decision"] == "accept":
+            target = stated_breach if review["final"] == "breach" else stated_no_breach
+            target.add(clause)
 
     by_clause_table = {}
     for row in d["table_rows"]:
@@ -5326,6 +6160,15 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
             basis = ("verdict_appealed_prose_attributed"
                      if (panel or appeal_board) else "verdict_appealed_unattributed")
 
+        review = prose_reviews.get(clause)
+        if review is not None:
+            if review["decision"] != "accept":
+                raise SystemExit(
+                    f"REFUSING: refused PROSE_ONLY_VERDICT_READ[{case_number}, {clause}] "
+                    "nevertheless created a verdict row")
+            basis = "verdict_prose_only_reviewed"
+            note = f"{note}; {review['reason']}" if note else review["reason"]
+
         if dual_board:
             # Both polarities on the appeal axis, READ and confirmed: there is
             # no single Appeal Board ruling to publish. On 38 of the 40 the
@@ -5384,7 +6227,7 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
             # The reviewed decision's own words, kept on the row the way
             # `apply_verdict_adjudication` keeps a reviewed polarity's.
             note = f"{note}; {row_year_note}" if note else row_year_note
-        verdicts.append({
+        row = {
             "clause": clause,
             "code_year": row_year,
             # R20. WHICH evidence decided the year, kept beside the year itself
@@ -5430,11 +6273,11 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
             # uniform beats special-cased, and `len(rulings) > 1` is then the
             # per-regard fact the scalars above cannot carry.
             #
-            # What is NOT here, and is R27's measured limit rather than an
-            # oversight: rulings on clauses the outcome lists never name. A row
-            # exists only where a list states the clause (SPEC §5), so prose
-            # about an unlisted clause has no row to hang from -- 417 (case,
-            # clause) pairs, 384 conservatively.
+            # What is ordinarily NOT here, and is R27's measured limit rather
+            # than an oversight: rulings on clauses the outcome lists never
+            # name. Only the finite PROSE_ONLY_VERDICT_READ entries create an
+            # exception; the other 400+ unlisted prose mentions still have no
+            # row to hang from.
             "rulings": [
                 {k: r[k] for k in ("body", "polarity", "regard", "regard_ref", "quote",
                                    "char_start", "char_end", "file", "pane",
@@ -5442,7 +6285,32 @@ def resolve_verdicts(d, appeal, code_year, inventory, shared, warn,
                 for r in d["ruling_records"] if r["clause"] == clause
             ],
             "note": note,
-        })
+        }
+        if review is not None:
+            expected = {
+                "panel": review["panel"],
+                "appeal_board": review["appeal_board"],
+                "final": review["final"],
+                "code_year": review["code_year"],
+                "code_year_basis": "year_prose_only_reviewed",
+                "dual_ruling": review["dual_ruling"],
+                "dual_ruling_appeal_board": review["dual_ruling_appeal_board"],
+                "basis": "verdict_prose_only_reviewed",
+            }
+            got = {field: row[field] for field in expected}
+            if got != expected:
+                raise SystemExit(
+                    f"REFUSING: PROSE_ONLY_VERDICT_READ[{case_number}, {clause}] expected "
+                    f"{expected}, but ordinary attribution plus the reviewed row produced {got}")
+        verdicts.append(row)
+
+    for clause, review in prose_reviews.items():
+        present = [v for v in verdicts if v["clause"] == clause]
+        expected_count = 1 if review["decision"] == "accept" else 0
+        if len(present) != expected_count:
+            raise SystemExit(
+                f"REFUSING: PROSE_ONLY_VERDICT_READ[{case_number}, {clause}] decision "
+                f"{review['decision']!r} requires {expected_count} row(s), got {len(present)}")
 
     # -- cross-checks: warnings, never failures, never edits ---------------
     finals = Counter(v["final"] for v in verdicts)
@@ -5669,6 +6537,17 @@ def apply_clause_slot_corrections(d, case_numbers, adjudications, used, emit_sha
             adj = fixes.get(clause)
             new = clause if adj is None else adj["value"]
             if new is not None:
+                # A clause hyperlink slug is evidence about the OLD chip, not
+                # about an adjudicated replacement.  Parent/child corrections
+                # can safely retain their shared top-level slug; a correction
+                # across top-level clauses cannot.  Keeping it made
+                # CASE/0261/08/24 publish Clause 6.1 with a Clause 26 slug (and
+                # did the same for two older N2 repairs).  Null is the honest
+                # value where the source provides no link for the corrected
+                # top-level clause.
+                if (adj is not None
+                        and str(clause).split(".", 1)[0] != str(new).split(".", 1)[0]):
+                    slug = None
                 out.append((new, year, slug))
         d[key] = out
     rows = []
@@ -5832,8 +6711,8 @@ def apply_complainant_adjudication(case, complainant, adjudications, used, emit_
     adjudication that could reach them would be able to rewrite the whole
     complainant from one reviewed sentence about their role.
 
-    It exists because two values in this slot are reachable by no rule, and both
-    were measured before the plumbing was written rather than after:
+    It exists because some values in this slot are reachable by no safe rule,
+    and each was measured before the plumbing was written rather than after:
 
       * AUTH/2108/3/08 + AUTH/2109/3/08 -- 'Orphan Europe complained about the
         promotion of N-carbamyl-L-glutamic acid powder ... by Special Products
@@ -5861,6 +6740,11 @@ def apply_complainant_adjudication(case, complainant, adjudications, used, emit_
         written 57 times, and two of its rows would need owner sign-off
         anyway. The other 6 members are registered as an open residual; this
         one is fixed because it was read.
+      * AUTH/3067/9/18 -- the captured phrase says the complainant was a FRIEND
+        OF a current Chiesi employee, not an employee. A lexical negative for
+        `employee` would also suppress genuine roles, while treating every
+        "friend of" phrase as `other` would be an unmeasured semantic rule. The
+        reviewed relation is therefore recorded as a one-case decision.
     """
     adj = adjudications.get((case, "parties.complainant.category"))
     if not adj:
@@ -6029,6 +6913,7 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
     company_fold = build_company_fold(digests, respondent_keys)
     clause_inventory = read_clause_inventory()
     used_adjudications = set()
+    used_prose_reviews = set()
     warnings = {k: [] for k in WARNING_CLASSES}
     cases = []
     # R20. One row per verdict whose year witnesses disagreed, written to
@@ -6108,6 +6993,24 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
                 num, "case_number", resolve_case_number(num, d["identity"]),
                 adjudications, used_adjudications, emit_shas)
 
+            # A respondent slot can contain a publisher typo even when the H1,
+            # report title, scoping sentence, response and ruling all agree on
+            # the other company (AUTH/2679/11/13).  Keep this sha-pinned and
+            # per-case, like the other semantic field adjudications.  Rebuild
+            # the respondent portion of entities.companies from the corrected
+            # value so the two model-facing fields cannot contradict each
+            # other.
+            case_respondent = apply_adjudication(
+                num, "parties.respondent", respondent,
+                adjudications, used_adjudications, emit_shas)
+            case_respondent_companies = respondent_companies
+            if case_respondent["basis"] != respondent["basis"]:
+                case_respondent_companies = [
+                    company_fold.get(fold_key(name), name)
+                    for name in split_companies(collapse(case_respondent["value"]))
+                    if fold_key(name)
+                ]
+
             def warn(cls, detail, _num=num, _file=d["file"]):
                 warnings[cls].append({"case": _num, "file": _file, "detail": detail})
 
@@ -6129,6 +7032,10 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
             # contradictory categories for one document.
             case_complainant = apply_complainant_adjudication(
                 num, complainant, adjudications, used_adjudications, emit_shas)
+            case_companies = []
+            for name in case_respondent_companies + complainant_companies:
+                if name not in case_companies:
+                    case_companies.append(name)
             # `inter_company` is derived from the category, so it has to be
             # derived AFTER the adjudication -- the page-level `procedure` above
             # was computed from the unadjudicated reading.
@@ -6142,7 +7049,8 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
             # says so, rather than L2 guessing which case a clause belongs to.
             verdicts = resolve_verdicts(d, case_appeal, case_code_year, clause_inventory,
                                         len(d["cases"]) > 1, warn, year_arbitration, num,
-                                        adjudications, used_adjudications, emit_shas)
+                                        adjudications, used_adjudications, emit_shas,
+                                        used_prose_reviews)
             verdicts = [
                 apply_verdict_adjudication(num, v, adjudications, used_adjudications, emit_shas)
                 for v in verdicts
@@ -6178,7 +7086,7 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
                 "sibling_cases": siblings,
                 "title": title,
                 "subject": subject,
-                "parties": {"respondent": respondent, "complainant": case_complainant},
+                "parties": {"respondent": case_respondent, "complainant": case_complainant},
                 "code_year": case_code_year,
                 "procedure": case_procedure,
                 # R14/round 4. `dates.received` is adjudicable: three cases carry
@@ -6202,7 +7110,7 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
                 # indices that point into them.
                 "segments": d["segments"],
                 "renditions": dict(d["rendition_index"]),
-                "entities": {"companies": companies, "products": [], "people_roles": []},
+                "entities": {"companies": case_companies, "products": [], "people_roles": []},
                 "quality": {
                     "source_integrity": d["source_integrity"]["status"],
                     "source_integrity_note": d["source_integrity"]["note"],
@@ -6222,6 +7130,11 @@ def build_cases(digests, pdf_by_html, adjudications, emit_shas):
 
     cases.sort(key=lambda c: case_sort_key(c["case_number"]["value"]))
     check_clause_witness_coverage(unwitnessed_rows)
+    dead_prose_reviews = sorted(set(PROSE_ONLY_VERDICT_READ) - used_prose_reviews)
+    if dead_prose_reviews:
+        raise SystemExit(
+            "REFUSING: PROSE_ONLY_VERDICT_READ has dead entries whose case/row was not "
+            f"encountered: {dead_prose_reviews}")
     return (cases, company_fold, respondent_keys, used_adjudications, warnings,
             year_arbitration, slot_corrections)
 
@@ -6494,6 +7407,27 @@ def check_precedent_guard_coverage(digests):
         cannot tell a ruling from a report of one, and the registry is the
         reading. A new member means new text, and new text needs a reader.
     """
+    stray_mismatch = []
+    for key, expected in sorted(STRAY_PERIOD_RULING_READ.items()):
+        actual = STRAY_PERIOD_RULING_FIRED[key]
+        if actual != expected:
+            stray_mismatch.append((key, expected, actual))
+    unknown_stray = sorted(set(STRAY_PERIOD_RULING_FIRED) - set(STRAY_PERIOD_RULING_READ))
+    if stray_mismatch or unknown_stray:
+        rows = [f"{file} {key}: expected {want}, saw {got}"
+                for (file, key), want, got in stray_mismatch]
+        rows += [f"{file} {key}: unreviewed" for file, key in unknown_stray]
+        raise SystemExit(
+            "REFUSING: reviewed stray-period ruling-list population changed:\n  "
+            + "\n  ".join(rows)
+            + "\nRe-read the complete sentence before changing the registry.")
+
+    dead_context = sorted(set(RULING_CONTEXT_REFUSALS) - RULING_CONTEXT_REFUSALS_FIRED)
+    if dead_context:
+        raise SystemExit(
+            "REFUSING: RULING_CONTEXT_REFUSALS contains sentence hashes that no longer fire:\n  "
+            + "\n  ".join(f"{case} {key}" for case, key in dead_context)
+            + "\nRe-read the recap/submission before trusting the refusal.")
     buckets = {"mixed_unregistered": [], "unregistered": [], "citation_unregistered": []}
     for d in digests:
         for why, key, sentence in d.get("precedent_mixed") or []:
@@ -6649,7 +7583,9 @@ def main():
     # exactly how it came to under-report by 25% (DEFECTS R3). Refusing after
     # the write would leave a bad artefact on disk.
     check_outwith_coverage(digests)
+    check_supplemental_boundary_coverage()
     check_ruling_false_match_registry()
+    check_response_attest_false_positive_registry()
     check_appeal_heading_coverage(digests)
     check_sanction_needle_coverage(digests)
     check_precedent_guard_coverage(digests)

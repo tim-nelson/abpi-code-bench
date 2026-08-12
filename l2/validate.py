@@ -59,6 +59,134 @@ SLOT_CORRECTIONS = ROOT / "data" / "l2" / "clause_slot_corrections.jsonl"
 
 MAX_REPORT = 20
 
+# Independent copy of the closed prose-only verdict audit. This intentionally
+# does not import build.PROSE_ONLY_VERDICT_READ: the validator must catch a
+# builder entry added, removed or altered on only one side. The raw L1 report
+# pane is re-hashed and every quote is re-found in `audit_segments`; accepted
+# rows are compared field-for-field, while the refused row must stay absent.
+V_PROSE_ONLY_VERDICT_READ = {
+    ("AUTH/2337/7/10", "2"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "be983dbd1d631257a61b8afb150511ba45d05785238e889dc1915fc594cc6d8d",
+        "quotes": ("Given that the item was not in its final form and had not been used as "
+                   "described above the Panel ruled no breach of Clauses 2, 7.2, 9.10 and "
+                   "22.1 of the Code.",),
+    },
+    ("AUTH/2337/7/10", "9.10"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "be983dbd1d631257a61b8afb150511ba45d05785238e889dc1915fc594cc6d8d",
+        "quotes": ("Given that the item was not in its final form and had not been used as "
+                   "described above the Panel ruled no breach of Clauses 2, 7.2, 9.10 and "
+                   "22.1 of the Code.",),
+    },
+    ("AUTH/2337/7/10", "22.1"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "be983dbd1d631257a61b8afb150511ba45d05785238e889dc1915fc594cc6d8d",
+        "quotes": ("Given that the item was not in its final form and had not been used as "
+                   "described above the Panel ruled no breach of Clauses 2, 7.2, 9.10 and "
+                   "22.1 of the Code.",),
+    },
+    ("AUTH/2220/3/09", "18.1"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "03cf6259f006761f4ab78bce44e57d50a6043bdd013310c38369da99c6c36d09",
+        "quotes": ("The Panel ruled no breach of Clauses 18.1 and 18.4.",
+                   "The Panel ruled no breach of Clauses 15.2 and 18.1 of the Code on this point.",
+                   "No breach of Clauses 18.1 and 19.1 were ruled."),
+    },
+    ("AUTH/2316/5/10", "7.4"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2008,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "cb1087e2d7840b80c9b7032db2761194c213bf2fa736b702dd1c774ab2b11f02",
+        "quotes": ("Although noting that extreme dissatisfaction was usually required before an "
+                   "individual was moved to complain, on the basis of the information before it "
+                   "the Panel ruled no breach of Clauses 7.2 and 7.4 of the Code.",),
+    },
+    ("AUTH/1855/6/06", "7.9"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2006,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "54dc428187e1761b5339053c2195a0754f5fe9153d1b96059e2a39f3f4753836",
+        "quotes": ("Thus the Panel ruled no breach of Clauses 7.2, 7.8, 7.9 and 7.10 of the Code.",),
+    },
+    ("AUTH/1855/6/06", "9.1"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2006,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "54dc428187e1761b5339053c2195a0754f5fe9153d1b96059e2a39f3f4753836",
+        "quotes": ("The Panel did not consider that the page failed to maintain a high standard "
+                   "and thus no breach of Clause 9.1 of the Code was ruled.",
+                   "The Panel did not consider that the pages were misleading and thus ruled no "
+                   "breach of Clauses 7.2, 7.4 and 9.1 of the Code."),
+    },
+    ("AUTH/1884/8/06", "15.2"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2006,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "c6c4b3b86a3d43df69e2c9ea56b514ab61cee04dd7814cfd9b1df03837e479d4",
+        "quotes": ("The Panel considered that the evidence before it was such that it was not "
+                   "possible to determine whether on the balance of probabilities the "
+                   "representative’s conduct amounted to a breach of Clauses 15.2 and 15.4 of "
+                   "the Code and thus no breach of these clauses was ruled.",
+                   "The Panel thus ruled no breach of Clauses 15.2 and 15.4 of the Code.",
+                   "The Panel did not know where the truth lay and thus ruled no breach of "
+                   "Clauses 15.2 and 15.4 of the Code.",
+                   "The Panel ruled no breach of Clauses 15.2 and 15.4 of the Code."),
+    },
+    ("AUTH/2634/8/13", "15.9"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2012,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "97470a66bd1e6025ca39c4019741b678949f75e7a046e752180c0fea205b1e6e",
+        "quotes": ("The Panel ruled no breach of Clauses 7.2, 7.4, 7.9, 15.2 and 15.9 of the Code.",),
+    },
+    ("AUTH/3587/12/21", "12.6"): {
+        "decision": "accept", "final": "no_breach", "code_year": 2021,
+        "panel": "no_breach", "appeal_board": "no_breach", "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "2bd43b24d74f45ca02a3a1cc2d6c149539dbb87abf75fe17123640fa9637a7d0",
+        "quotes": ("It therefore ruled no breach of Clauses 12.1, 12.3, 12.4 and 12.6 of the 2021 Code.",
+                   "The Appeal Board agreed with the Panel’s comments above and upheld its rulings "
+                   "of no breach of Clauses 2, 3.3, 5.1, 12.1, 12.3, 12.4 and 12.6 of the 2021 Code."),
+    },
+    ("AUTH/2667/11/13", "2"): {
+        "decision": "accept", "final": "no_breach", "code_year": None,
+        "panel": "no_breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "3cc2fef8522111bd70ceee74d4f353053687d87c2662ad48bab93b08cb81babc",
+        "quotes": ("Thus the Panel ruled no breach of Clauses 9.1 and 2 of the 2006 Code.",
+                   "The Panel ruled no breach of Clauses 21.3 and consequently no breach of "
+                   "Clauses 9.1 and 2 of the 2011 Code in relation to NCT00472290.",
+                   "The results had been disclosed and the Panel considered that there was no "
+                   "breach of Clause 2 and ruled accordingly."),
+    },
+    ("AUTH/3258/10/19", "7.9"): {
+        "decision": "accept", "final": "breach", "code_year": 2019,
+        "panel": "breach", "appeal_board": None, "dual_ruling": False,
+        "dual_ruling_appeal_board": False,
+        "source_sha256": "b0f3f0c2ba2929d9ab8fac9dd560488cd5ffb700ed115465940f068385ed3d26",
+        "quotes": ("The available evidence was not reflected in the formulary decision guide "
+                   "and the Panel therefore ruled a breach of the Code.",
+                   "The Panel did not consider that the complainant had made an allegation with "
+                   "regard to Clause 7.9 in this regard and therefore made no ruling."),
+    },
+    ("AUTH/3615/3/22", "9.1"): {
+        "decision": "refuse",
+        "source_sha256": "b02a3bd51cd6b114559c4e75b46b442af2f460c41723ab3061422bb3d7c61cbb",
+        "quotes": ("The Panel consequently ruled no breach of Clauses 9.1 and 2 of the 2019 Code.",
+                   "Turning to the case now before it, Case AUTH/3615/3/22, the Panel considered "
+                   "that there was a difference to the previous case (Case AUTH/3504/4/21)."),
+    },
+}
+
 # ---------------------------------------------------------------------------
 # The validator's OWN implementation of the attest. Implemented from SPEC §6,
 # not imported. If this disagrees with build.py the build fails, which is the
@@ -269,6 +397,90 @@ def check_v_ruling_false_matches(failures):
                                  f"re-read the case before trusting the row"))
 
 
+# Independent statement of build.py's reviewed response-attest decisions.
+# These are decisions, not shared parsing: the validator still computes all
+# six checks itself, then requires the exact pre-decision failure set and the
+# exact full-span hash before clearing it.  A stale or newly firing detector is
+# therefore a validation failure rather than a silently broadened exemption.
+V_RESPONSE_ATTEST_FALSE_POSITIVES = {
+    ("AUTH-3796-7-23.html", "8825d7fa4b73c6b068b62cf6625b300fac35e63b1f4eebfdc4ce50cfeb1405d2"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3853-11-23.html", "7d3ffe87371ca959424338f35796cb9ff1ae108445da2658b13e2d77af58b2bb"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3864-12-23.html", "a35ddd15f3c31b1c61ac3c6f3cdebd7bfeff600cf806a33799564cd3c8b5c176"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3866-12-23.html", "6e2da3cd8943b95d5a2c2a6448edd06ed82c2764f3a2895b0623c07e8f20c671"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3867-12-23.html", "80b674b2e1828d9d3e4b4624ddf2305459342e73ca49a72b17e70ecf59dd4810"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3879-2-24.html", "d247132e47c4ed89ac3bf85b9594afc24fa9ea282255f50551a3ce34757501f0"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3889-4-24.html", "428a258f761478715ec55bea62fee396e221dedb23655be40314e0cd01d6b61c"): frozenset(("no_ruling_language",)),
+    ("AUTH-3892-4-24.html", "93a641d644f10f1837fce6b1d4e9e44357240bba73536e1659924bd6642c9903"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("AUTH-3893-4-24.html", "1ae40fc4b569501789b3e1c21604d45f03722c12b3d117dac1e83f20baaef80b"): frozenset(("no_ruling_language",)),
+    ("AUTH-3897-5-24.html", "b59cac1f10dcd51e012c1f06d3a651f9badb6f05f5ec51e1ab18691c21b9a263"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3899-5-24.html", "fce5c3380727b601698f8f1ad0bbb3db1e0e4be3a1bd47f9bfa5198fa97b52d5"): frozenset(("no_ruling_language",)),
+    ("AUTH-3901-5-24.html", "f13c3aa3d7eed9f0dfead7f8f7a479074b880fff8056e124484b5d696d5e9785"): frozenset(("no_ruling_language",)),
+    ("AUTH-3905-5-24.html", "28aaf2193700075ec39e210196147feac43b009c33ec03a9279bd202d6d4c756"): frozenset(("no_ruling_language",)),
+    ("AUTH-3917-6-24.html", "7fbb8127947fb11d9ece739a92533bf96c4e6e20f003d2feb09462d26d44623a"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3918-6-24.html", "795b0022f0a627426a8495a00082073175bcdf7eba0ea188908ab0fc281bf7d8"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3919-6-24.html", "ea47ea57b1ae4d041af6c894ea82005d04e72bdf2e71503394b940236e5aa34a"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3920-6-24.html", "fbde191be2014159de37b6383801f5aa271402b30df7985cae0c0bd02b7f43b9"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("AUTH-3921-06-24.html", "10640a9a030dbe8808f5a762febd97640030828c8cdd203dbfc02e850686f747"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("AUTH-3924-6-24.html", "12250c31e62f2843a0f4c23af8f1dc71850d1976a38e07f0f0197fa8d6f7840b"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0209-06-24.html", "677340588f2cdf830ff0b37e258278c71e8f638c5352ad886755eef4228bbc59"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0247-07-24.html", "11657b6ddbfc0d509c36b8f265a9d92ca6814789176a8be368e2934ce00d9078"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0251-07-25.html", "9ae7983326c288a6607135cb36e562f91b345cc3bf290c319b5a4976a48b1209"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0253-08-24.html", "a203ed9bddfd4100434a260e00251545e79d3eb29f8a41039e0cff76c6c0d70e"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0270-08-24.html", "50204c03798359dc46facc91cca18dcbba4a26214d8562afd310a950fc6dea98"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0273-08-24.html", "e2277dc75540efdbf984055853925a3491c4132195ed16ba2aaea2f94ce23647"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0288-09-24.html", "1cc7b889bb13a5332dec28d1144a4d26a1bd8c1087199d5e5cb006a08f69caf6"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0303-09-24.html", "8eb5b188d43136fbe06bb37d80e42415e6c6c350ec684ace669be29ad8b6da93"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0363-11-24.html", "53997d556f8d763397c3bfbd18172c4777076bad289d7895595058c92f655f35"): frozenset(("no_ruling_language",)),
+    ("CASE-0381-11-24.html", "1b24a4e46dc19d7b08f7175f72234f5926b4c11df1a35a5bacc4b6e8ed8a54df"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0387-12-24.html", "5817299699b5159757ae14b0f3c6a2a626482efceadcc085a13eeedf26999f12"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0392-12-24.html", "7957eefd905a2cfd8ad296a6687c6dd0c5c44bbf64ee01671388fc8d950d9b8c"): frozenset(("no_ruling_language",)),
+    ("CASE-0437-01-25.html", "d7cd18ba3f1d3d9fd58d63b5a70a6938aba779da19866a84db48113f715059c2"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0446-01-25.html", "5d51937ed62a4952adac8b0cc7ff3ece49a57dd4206c31060dca579d898d29b3"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0471-02-25.html", "836c1b4a996c195b841c640b37e5275bb9dea2d0b70ce899b7496e4b2873a9ed"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0552-04-25.html", "40963204baf8163dd58838c53b3d8ae1e57aab03beaab86b9abb039e39916245"): frozenset(("no_ruling_language",)),
+    ("CASE-0591-5-25.html", "68e8c7be30da17368193ae75b6d23a131afb9a7e46efca38a645f0e3026b4904"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0596-05-25.html", "f50becf2a1c463036c4fac7b5437de27c4598f4706d7f2fd50e72bb064db4c30"): frozenset(("no_ruling_language",)),
+    ("CASE-0599-05-25.html", "e52ec7097e605ad9038649c24fb50cce39c07f69d53e9dccff0c95f8e3da58dc"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0664-07-25.html", "4c1c59aeee3cc3cd2c5498b03da8cb1ae3c4edc24647b6fb007e29a48f914761"): frozenset(("no_ruling_language",)),
+    ("CASE-0681-08-25.html", "c3704030aa146ee65c39eb81fcfde37ea23c310ce72a0f6b6d7ff104b4b6c2d1"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0694-08-25.html", "088fb348c84a849deb54417712f18433e0e41a62469a860282120c88655ad1a4"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0710-08-25.html", "1ba35ef7a4d99113ec4d61947001cda8ec164105ba63a3cf0821f4589987207c"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0722-09-25.html", "a9709ce206bdb0481b9772a187c91a50a1fdd7fe6987be819a278e3e6810b110"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0761-10-25.html", "239457721a54afc2d97ae80bb194112549bd91f4c36929c97f8e0815dc47fe7c"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table", "no_ruling_language")),
+    ("CASE-0777-10-25.html", "bfb7dfae5d8b3c061b5faa8565a38ff2406c339702868f4e58b4d2d25888e74d"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+    ("CASE-0836-12-25.html", "91fe19a8adf5e45a3d92e18bc58389040852bb4d6b8ce5f911b3075a6483d9d7"): frozenset(("no_outcome_banner", "no_outcome_heading", "no_outcome_table")),
+}
+V_RESPONSE_ATTEST_FALSE_POSITIVE_FIRED = set()
+V_RESPONSE_ATTEST_FALSE_POSITIVE_ERRORS = set()
+
+
+def v_apply_response_attest_false_positive(span, file, checks):
+    digest = hashlib.sha256(span.encode("utf-8")).hexdigest()
+    key = (file, digest)
+    expected = V_RESPONSE_ATTEST_FALSE_POSITIVES.get(key)
+    if expected is None:
+        return
+    failed = frozenset(name for name, passed in checks.items() if not passed)
+    if failed != expected:
+        V_RESPONSE_ATTEST_FALSE_POSITIVE_ERRORS.add(
+            (file, digest, tuple(sorted(expected)), tuple(sorted(failed))))
+        return
+    V_RESPONSE_ATTEST_FALSE_POSITIVE_FIRED.add(key)
+    for name in expected:
+        checks[name] = True
+
+
+def check_v_response_attest_false_positives(failures):
+    for file, digest in sorted(
+            set(V_RESPONSE_ATTEST_FALSE_POSITIVES) - V_RESPONSE_ATTEST_FALSE_POSITIVE_FIRED):
+        failures.append((file, "attest", "V_RESPONSE_ATTEST_FALSE_POSITIVES",
+                         f"reviewed response span {digest} was never matched exactly; re-read it"))
+    for file, digest, expected, actual in sorted(V_RESPONSE_ATTEST_FALSE_POSITIVE_ERRORS):
+        failures.append((file, "attest", "V_RESPONSE_ATTEST_FALSE_POSITIVES",
+                         f"response span {digest} expected failures {list(expected)}, "
+                         f"but independently recomputed {list(actual)}"))
+
+
 # ---------------------------------------------------------------------------
 # The validator's OWN reading of the VERDICT-EVIDENCE passive frame (DEFECTS
 # R28 / audit round-2A N1). Same discipline as the attest above and for the
@@ -352,6 +564,18 @@ def v_clause_list(text, toks, k):
             i += 1
         elif joiner.strip() in (",", "&"):
             pass
+        elif joiner.strip() == ".":
+            # Reviewed publisher typo: "Clauses 1.11. 9.1 and 2".  A period
+            # is a list joiner only when the following number itself continues
+            # into another joined number.  Thus "Clause 6.1. 3. Hanging
+            # comparison" cannot turn matter number 3 into a clause.
+            _, after_period_item = v_clause_number(text, toks, i)
+            if after_period_item >= n:
+                break
+            after_gap = text[toks[after_period_item - 1][1]:toks[after_period_item][0]]
+            if toks[after_period_item][2] not in ("and", "or") \
+                    and after_gap.strip() not in (",", "&"):
+                break
         else:
             break
         if i < n and toks[i][2] in ("consequently", "also", "further"):
@@ -446,6 +670,21 @@ def v_ruling_statement(quote, clause, polarity):
     n = len(toks)
     if not any(w.startswith("rul") or w.startswith("uph") for _, _, w in toks):
         return False
+
+    def last_named_before(limit):
+        last, t = [], 0
+        while t < limit:
+            if toks[t][2] not in ("clause", "clauses"):
+                t += 1
+                continue
+            rows, nxt = v_clause_list(quote, toks, t)
+            if rows:
+                last = rows
+                t = max(nxt, t + 1)
+            else:
+                t += 1
+        return last
+
     for k, (s, e, w) in enumerate(toks):
         if w not in ("breach", "breaches"):
             continue
@@ -507,10 +746,72 @@ def v_ruling_statement(quote, clause, polarity):
                     neg = True
         if ("no_breach" if neg else "breach") == polarity:
             return True
+
+    # Independent reading of the assurance receipt-recall frames.  These are
+    # token relations, not copies of the builder's regexes.
+    for k, (_, _, word) in enumerate(toks):
+        # "... Clause 9.3 and no breach was ruled": the disposition is
+        # clause-less but its explicit antecedent is in this sentence.
+        if word == "no" and k + 2 < n and toks[k + 1][2] in ("breach", "breaches") \
+                and toks[k + 2][2] in ("was", "were"):
+            ruled_at = k + 3
+            if ruled_at < n and toks[ruled_at][2] != "ruled":
+                ruled_at += 1              # at most one connective adverb
+            connector = (k and toks[k - 1][2] == "and")
+            if k:
+                connector = connector or any(ch in quote[toks[k - 1][1]:toks[k][0]]
+                                             for ch in ";,")
+            if connector and ruled_at < n and toks[ruled_at][2] == "ruled" \
+                    and polarity == "no_breach" and clause in last_named_before(k):
+                return True
+
+        # "requirements of Clause 15.5 ... ruled a breach accordingly" (and
+        # its negative form).  The last explicit list before the verb is the
+        # antecedent; a cross-sentence or bare-number guess is impossible.
+        if word == "ruled":
+            j, neg = k + 1, False
+            if j < n and toks[j][2] == "no":
+                neg, j = True, j + 1
+            if j < n and toks[j][2] in ("a", "an", "the"):
+                j += 1
+            if j + 1 < n and toks[j][2] in ("breach", "breaches") \
+                    and toks[j + 1][2] == "accordingly" \
+                    and ("no_breach" if neg else "breach") == polarity \
+                    and clause in last_named_before(k):
+                return True
+
+        # The single missing-preposition source form: "; no breach Clause
+        # 19.1 ... was ruled".  Punctuation plus the explicit negative head
+        # separates it from ordinary "did not breach Clause X" reasoning.
+        if word in ("breach", "breaches") and k and toks[k - 1][2] == "no" \
+                and k + 1 < n and toks[k + 1][2] in ("clause", "clauses"):
+            punct = (k >= 2 and any(ch in quote[toks[k - 2][1]:toks[k - 1][0]]
+                                   for ch in ";:"))
+            heads, after = v_clause_list(quote, toks, k + 1)
+            ruled = any(toks[t][2] in ("was", "were")
+                         and any(toks[u][2] == "ruled"
+                                 for u in range(t + 1, min(n, t + 3)))
+                         for t in range(after, n))
+            if punct and ruled and polarity == "no_breach" and clause in heads:
+                return True
     return False
 
 
-def v_panel_polarities(span, own_cases):
+V_PANEL_CONTEXT_REFUSALS = {
+    # Validator-local sentence keys.  `v_sentences` deliberately returns the
+    # sentence body without terminal punctuation, so these are not the same
+    # hashes as build.py's independently maintained context-refusal registry.
+    # Both sentences occur in AUTH/2589's recap of AUTH/2442 and describe that
+    # earlier case's Clause 25 rulings, not a ruling in AUTH/2589.
+    ("AUTH/2589/3/13", "80eab20c8c11"):
+        "recap of AUTH/2442/10/11, identified in the preceding sentence",
+    ("AUTH/2589/3/13", "acd35567f3d1"):
+        "second recap ruling from AUTH/2442/10/11",
+}
+V_PANEL_CONTEXT_REFUSALS_FIRED = set()
+
+
+def v_panel_polarities(span, own_cases, case_number):
     """[(polarity, clause)] this reading attributes to the PANEL in one
     panel_ruling segment."""
     out = []
@@ -522,10 +823,26 @@ def v_panel_polarities(span, own_cases):
         cited = {v_case_number(m) for m in V_CASE_NUM_RE.finditer(sentence)}
         if cited - set(own_cases):
             continue
+        sentence_key = hashlib.sha256(
+            " ".join(sentence.split()).encode("utf-8")).hexdigest()[:12]
+        refusal = (case_number, sentence_key)
+        if refusal in V_PANEL_CONTEXT_REFUSALS:
+            V_PANEL_CONTEXT_REFUSALS_FIRED.add(refusal)
+            continue
         for row in v_passive_statements(sentence):
             if row not in out:
                 out.append(row)
     return out
+
+
+def check_v_panel_context_refusals(failures):
+    dead = sorted(
+        set(V_PANEL_CONTEXT_REFUSALS) - V_PANEL_CONTEXT_REFUSALS_FIRED)
+    if dead:
+        failures.append((
+            "(corpus)", "verdict", "V_PANEL_CONTEXT_REFUSALS",
+            "reviewed recap sentences were never matched exactly (dead entries): "
+            f"{dead}"))
 
 
 # R26's sixth check, also implemented rather than copied: the outcome-stating
@@ -645,7 +962,7 @@ def recompute_attest(span, pane, start, end, ctx, kind, file=None):
     else:
         a0, a1 = abstract
         outside = not (start < a1 and a0 < end)
-    return {
+    checks = {
         "no_ruling_language": not v_ruling_language(span, ctx["own_cases"], file),
         "no_outcome_banner": not any(b in hay for b in ctx["banners"]),
         "no_outcome_table": not any(t in hay for t in ctx["tables"]),
@@ -653,6 +970,9 @@ def recompute_attest(span, pane, start, end, ctx, kind, file=None):
         "no_sanctions_text": not any(c in hay for c in ctx["chips"]),
         "no_outcome_heading": not any(h in hay for h in ctx["outcome_headings"]),
     }
+    if kind == "response":
+        v_apply_response_attest_false_positive(span, file, checks)
+    return checks
 
 
 def check_segments(refs, panes, ctx, failures):
@@ -756,7 +1076,7 @@ def check_panel_prose(refs, panes, ctx, by_name, failures):
         if case is None:
             continue
         rows = {v["clause"]: v for v in case["verdicts"]}
-        for polarity, clause in v_panel_polarities(span, ctx["own_cases"]):
+        for polarity, clause in v_panel_polarities(span, ctx["own_cases"], name):
             v = rows.get(clause)
             if v is None:
                 continue
@@ -765,6 +1085,67 @@ def check_panel_prose(refs, panes, ctx, by_name, failures):
                 failures.append((name, "verdict", f"segments[{i}] -> verdicts[{clause}]",
                                  f"recomputation reads a PANEL {polarity} for clause {clause} "
                                  f"in this panel_ruling segment; the build's {flag} is false"))
+
+
+def check_v_prose_only_verdicts(rec, keys, by_name, failures, seen):
+    """Independently check the closed silent-clause audit against raw L1."""
+    report = rec["panes"]["report"]["text"]
+    got_sha = hashlib.sha256(report.encode("utf-8")).hexdigest()
+    slot_keys = (
+        "meta_clause_breach", "meta_clause_no_breach",
+        "info_breach_clauses", "info_no_breach_clauses",
+        "chip_breach", "chip_no_breach",
+    )
+    for key in keys:
+        name, clause = key
+        review = V_PROSE_ONLY_VERDICT_READ[key]
+        seen.add(key)
+        where = f"PROSE_ONLY_VERDICT_READ[{clause}]"
+        if got_sha != review["source_sha256"]:
+            failures.append((name, "prose-only verdict", where,
+                             f"raw report sha is {got_sha}, reviewed sha is "
+                             f"{review['source_sha256']}"))
+        for quote in review["quotes"]:
+            if quote not in report:
+                failures.append((name, "prose-only verdict", where,
+                                 f"review quote is not verbatim in raw report: {quote[:120]!r}"))
+        case = by_name.get(name)
+        if case is None:
+            failures.append((name, "prose-only verdict", where,
+                             "review names no published case"))
+            continue
+        rows = [v for v in case["verdicts"] if v["clause"] == clause]
+        if review["decision"] == "refuse":
+            if rows:
+                failures.append((name, "prose-only verdict", where,
+                                 "review refused this foreign/non-ruling prose, but a verdict "
+                                 "row exists"))
+            continue
+        if len(rows) != 1:
+            failures.append((name, "prose-only verdict", where,
+                             f"accepted review requires exactly one verdict row, got {len(rows)}"))
+            continue
+        row = rows[0]
+        if any(row["sources"][field] for field in slot_keys):
+            failures.append((name, "prose-only verdict", where,
+                             "reviewed prose-only row is now stated by an outcome slot/chip; "
+                             "the exceptional entry is stale"))
+        expected = {
+            "panel": review["panel"],
+            "appeal_board": review["appeal_board"],
+            "final": review["final"],
+            "code_year": review["code_year"],
+            "code_year_basis": "year_prose_only_reviewed",
+            "dual_ruling": review["dual_ruling"],
+            "dual_ruling_appeal_board": review["dual_ruling_appeal_board"],
+            "flipped_on_appeal": False,
+            "basis": "verdict_prose_only_reviewed",
+            "occurrence": 0,
+        }
+        got = {field: row[field] for field in expected}
+        if got != expected:
+            failures.append((name, "prose-only verdict", where,
+                             f"expected {expected}, published {got}"))
 
 
 def audit_segments(cases, failures, adj_ids=frozenset()):
@@ -794,6 +1175,16 @@ def audit_segments(cases, failures, adj_ids=frozenset()):
             by_file.setdefault(seg["ref"]["file"], []).append((name, i, seg))
         ruling_cases.setdefault(case["source_files"][0], []).append(name)
 
+    review_by_file = {}
+    review_seen = set()
+    for key in V_PROSE_ONLY_VERDICT_READ:
+        case = by_name.get(key[0])
+        if case is None:
+            failures.append((key[0], "prose-only verdict", "registry",
+                             "review names no published case"))
+            continue
+        review_by_file.setdefault(case["source_files"][0], []).append(key)
+
     held_ctx = {}
     checked = 0
     with L1_RECORDS.open(encoding="utf-8") as rf, L1_DERIVED.open(encoding="utf-8") as df:
@@ -804,7 +1195,8 @@ def audit_segments(cases, failures, adj_ids=frozenset()):
             der = json.loads(dline)
             wanted = by_file.get(rec["file"])
             owns_pdf = rec["file"] in pdf_owner.values()
-            if not wanted and not owns_pdf:
+            prose_reviews = review_by_file.get(rec["file"])
+            if not wanted and not owns_pdf and not prose_reviews:
                 continue
             tables = set()
             for row in rec["outcomes"]["report_table_rows"]:
@@ -829,6 +1221,9 @@ def audit_segments(cases, failures, adj_ids=frozenset()):
                 ctx["abstract"]["report"] = (0, boundary["offset"])
             panes = {"summary": rec["panes"]["summary"]["text"],
                      "report": rec["panes"]["report"]["text"]}
+            if prose_reviews:
+                check_v_prose_only_verdicts(
+                    rec, prose_reviews, by_name, failures, review_seen)
             if owns_pdf:
                 held_ctx[rec["file"]] = ctx
             if wanted:
@@ -868,6 +1263,13 @@ def audit_segments(cases, failures, adj_ids=frozenset()):
     # Every segment in the corpus has now been re-attested, so a declared false
     # ruling-language match that never fired is a stale row, not a not-yet.
     check_v_ruling_false_matches(failures)
+    check_v_response_attest_false_positives(failures)
+    check_v_panel_context_refusals(failures)
+    dead_reviews = sorted(set(V_PROSE_ONLY_VERDICT_READ) - review_seen)
+    if dead_reviews:
+        failures.append(("(corpus)", "prose-only verdict", "registry",
+                         f"defined but never matched a raw L1 report (dead entries): "
+                         f"{dead_reviews}"))
     return checked
 
 
@@ -971,6 +1373,28 @@ def audit_rulings(case, panes, failures, adj_ids=frozenset()):
          an adjudication, are not prose claims at all.)
     """
     name = case["case_number"]["value"]
+    # A matter heading can open a party segment at exactly its first byte, but
+    # a numbered heading strictly inside complaint/response prose is that
+    # party's own organisation of its submission.  It cannot be a receipt for
+    # what a later adjudicator ruling is "in regard to".  This independently
+    # enforces the segment-containment repair in build.py and would have caught
+    # all 37 all-regards-in-response cases found by the assurance pass.
+    party_spans = {}
+    for seg in case.get("segments") or []:
+        if seg.get("kind") not in ("complaint", "response"):
+            continue
+        sr = seg["ref"]
+        party_spans.setdefault((sr["file"], sr["pane"]), []).append(
+            (sr["char_start"], sr["char_end"]))
+    context_refusals = {
+        ("AUTH/2589/3/13", "c9398635c0c2"),
+        ("AUTH/2589/3/13", "3cdfc60f3ae0"),
+        ("AUTH/2593/4/13", "a13ff44ceda5"),
+        ("AUTH/2593/4/13", "41046e1bacd5"),
+        ("AUTH/2960/6/17", "bb08f63974b7"),
+        ("AUTH/3615/3/22", "6fe41f45a38b"),
+        ("AUTH/2739/11/14", "46d6b238664c"),
+    }
     for i, v in enumerate(case["verdicts"]):
         seen = {"panel": set(), "appeal_board": set()}
         for j, r in enumerate(v.get("rulings") or []):
@@ -987,6 +1411,12 @@ def audit_rulings(case, panes, failures, adj_ids=frozenset()):
                                  f"[{r['char_start']}:{r['char_end']}] reads {got[:60]!r}, "
                                  f"the entry says {r['quote'][:60]!r}"))
                 continue
+            quote_key = hashlib.sha256(" ".join(r["quote"].split()).encode("utf-8")).hexdigest()[:12]
+            if (name, quote_key) in context_refusals:
+                failures.append((name, "ruling", where,
+                                 "receipt survived an independently reviewed recap/submission "
+                                 f"refusal ({quote_key})"))
+                continue
             if not v_ruling_statement(r["quote"], v["clause"], r["polarity"]):
                 failures.append((name, "ruling", where,
                                  f"the quote does not state {r['polarity']} on clause "
@@ -999,6 +1429,11 @@ def audit_rulings(case, panes, failures, adj_ids=frozenset()):
                 if cut != r["regard"]:
                     failures.append((name, "ruling", where,
                                      f"regard does not re-slice: {cut[:60]!r} vs {r['regard'][:60]!r}"))
+                if any(start < ref["char_start"] and ref["char_end"] <= end
+                       for start, end in party_spans.get((r["file"], r["pane"]), ())):
+                    failures.append((name, "ruling", where,
+                                     "regard_ref points strictly inside a complaint/response "
+                                     "segment; it is a party subheading, not a matter receipt"))
             seen[r["body"]].add(r["polarity"])
         if v["dual_ruling_appeal_board"]:
             if v["appeal_board"] is not None:
@@ -1118,8 +1553,13 @@ def main():
                         "meta_clause_breach", "meta_clause_no_breach",
                         "info_breach_clauses", "info_no_breach_clauses",
                         "chip_breach", "chip_no_breach")):
-                    failures.append((name, "receipts", f"verdicts[{i}]",
-                                     "no clause list states this clause -- a verdict from nowhere"))
+                    reviewed = V_PROSE_ONLY_VERDICT_READ.get((name, v["clause"]))
+                    if reviewed is None or reviewed["decision"] != "accept" \
+                            or v["basis"] != "verdict_prose_only_reviewed":
+                        failures.append((name, "receipts", f"verdicts[{i}]",
+                                         "no clause list states this clause and no independent "
+                                         "accepted prose-only review licenses the row -- a verdict "
+                                         "from nowhere"))
 
             audit_verdicts(case, failures, retired, adj_ids)
             audit_renditions(case, failures)

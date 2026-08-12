@@ -13,6 +13,47 @@ at the foot gates spending on a re-audit after fixes, and that round has not
 been run. Those six changed no label, split, extract or item_id (checked against
 the pre-fix item copies in `bench/subsets/`), but they did change 74 prompts.
 
+## Current freeze — assurance repair complete (2026-08-12)
+
+This dated entry supersedes the bank census immediately below while preserving
+the register's chronology. Assurance Batch 6 is complete: 162 cases / 1,116
+bundle-validated items, 312 Luna flags, then 85 confirmed / 117 already
+registered / 110 refuted / 0 uncertain by Sol. The compact archive is
+`audits/2026-08-12_assurance_batch_06.md`; the repair and complete verification
+record is `audits/2026-08-12_assurance_repair_and_freeze.md`.
+
+**RESOLVED in this pass:** bounded ruling-tail, bare-terminal, `accordingly`,
+missing-preposition and exact stray-period recall; exact foreign-recap and
+hypothetical refusals; 12 closed-list prose-only verdict rows; appeal-axis dual
+state; response/complaint boundary and matter-heading containment; exact
+response-attest false positives; PDF-owned date receipts; the AUTH/2461 date
+typo; reviewed case/clause Code years; respondent, slug, complainant role,
+contactability and explicit-anonymity metadata; undotted-clause supplementary
+text; T5 receipt loading and CASE/0302 setting curation. Each semantic judgment
+is exhaustive-by-guard or SHA-pinned; independent validator registries have
+dead-entry checks.
+
+Frozen artifacts: **2,004 L2 cases / 7,702 verdict rows / 182 adjudications**;
+**10,497 main items** (T1 4,599 / T1-triage 5,553 / T3 345) and 7,618 main
+exclusions; **29 T5 items** and 2,605 T5 exclusions. Against the 2026-08-11
+freeze, 12 verdict rows were added and none removed, no existing `final` value
+changed, and the full field-level diff found no unexplained change. L1/L2/bank
+validators, ruling/candidate/date/vocabulary/Code-year/PDF checks, score/probe
+self-tests, T5 determinism and second-build hashes all pass.
+
+Main-bank identity accounting is also closed: 186 label/split-preserving
+migrations (184 boundary, two Code-year) take the migration log 410 → 596;
+after those pairs, there are 304 true additions and 12 retirements, each with a
+durable exclusion. No published-board absence or score is newly introduced,
+but 28 archived T3 prompts and 19 Phase A prompts are input-stale and must not
+be described as fresh answers to the repaired prompts.
+
+**Still open by design:** the registered multi-case, no-report, unresolved
+Code-year, prose/list contradiction and PDF reading-order limitations. T4
+remains withdrawn. Git-clone-only reproduction and ordinary GitHub publication
+are also not solved by a semantic repair: see `../../docs/REPRODUCIBILITY.md`
+for the ignored source snapshot and existing >100 MiB history blocker.
+
 Current bank: 10,045 items (T1 4,303 / T1-triage 5,426 / T3 316) over 2,004 L2
 cases — **superseded by the 2026-08-09/10 repair waves: now 10,027 items
 (T1 4,298 / T1-triage 5,415 / T3 314), 310 items renamed via

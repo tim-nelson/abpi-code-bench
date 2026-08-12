@@ -1153,7 +1153,20 @@ def clause_text_for(lookup, code_year, clause):
     if not body:
         return None
     out = f"Clause {clause} ({title}):\n{body}"
-    supp = supp_text([{"heading": None, "text": row.get("general_supplementary")}]) if row.get("general_supplementary") else ""
+    # PDF-derived and interactive Code sources both sometimes represent an
+    # undotted clause as a self-mirroring subclause (number == the parent
+    # clause).  Its body is already reflected by row["text"], but its official
+    # supplementary information is not: reading only general_supplementary
+    # silently dropped Clause 2's "particular censure" guidance (and the same
+    # source shape for Clauses 20/21 in some editions).  Keep the two official
+    # supplementary slots distinct and include both when present.
+    supp_entries = []
+    if row.get("general_supplementary"):
+        supp_entries.append({"heading": None, "text": row["general_supplementary"]})
+    for sc in row.get("subclauses") or []:
+        if str(sc.get("number")) == str(clause):
+            supp_entries.extend(sc.get("supplementary_information") or [])
+    supp = supp_text(supp_entries)
     if supp:
         out += f"\n\nSupplementary information:\n{supp}"
     return clause_text_refuse(out, year, clause)
@@ -1760,15 +1773,21 @@ def build_case_items(case, group_key, split, resolver, tasks, problems, skips, u
 
     for verdict in case.get("verdicts") or []:
         clause = verdict.get("clause")
-        # DEFECTS D3. The clause was ruled on more than once, with different
-        # outcomes -- either in the Panel's own prose or across both outcome
-        # lists on a case with no appeal. There is no single ruling to label, so
-        # there is no item. L2 marked the row; bench does not second-guess it.
+        # DEFECTS D3. A dual row has no single label -- usually because the
+        # Panel ruled both ways in different regards, but in one deliberately
+        # distinct L2 class because an unappealed case's published outcome
+        # lists name the clause under both polarities. Keep those evidence
+        # claims distinct in the durable exclusion receipt.
         if verdict.get("dual_ruling"):
+            basis = verdict.get("basis")
+            if basis == "verdict_unappealed_dual_listed":
+                detail = (f"listed both ways in the published outcome lists ({basis}), "
+                          f"no single label exists")
+            else:
+                detail = (f"ruled both ways in this case ({basis}), "
+                          f"no single label exists")
             for task in tasks:
-                exclude(skips, num, task, clause, "dual_ruling",
-                        f"ruled both ways in this case ({verdict.get('basis')}), "
-                        f"no single label exists")
+                exclude(skips, num, task, clause, "dual_ruling", detail)
             continue
         # DEFECTS R20. L2 now arbitrates the row's Code edition instead of
         # preferring one witness, and it is allowed to REFUSE: a clause the

@@ -5,7 +5,9 @@ cases (UK pharmaceutical self-regulation), supporting an Oxford Statistics
 dissertation on behaviourist uncertainty quantification.
 
 **Start here:** [`docs/FINDINGS.md`](docs/FINDINGS.md) (every measured result,
-with caveats) · [`docs/WORKING_RULES.md`](docs/WORKING_RULES.md) (conventions, pipeline, hard rules) ·
+with caveats) · [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) (what a
+clone can and cannot rebuild) · [`docs/WORKING_RULES.md`](docs/WORKING_RULES.md) (conventions,
+pipeline, hard rules) ·
 [`bench/review/DEFECTS.md`](bench/review/DEFECTS.md) (how label quality was
 established) · [`bench/APPROACH.md`](bench/APPROACH.md) (measurement design) ·
 [`dissertation/`](dissertation/) (LaTeX draft) · [`site/`](site/) (review
