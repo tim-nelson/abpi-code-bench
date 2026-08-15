@@ -569,8 +569,17 @@ def require_complete_active_run(run_id, run_dir, current_items_path=None):
         defects.append(
             f"score K={scores.get('k')} but manifest K={manifest.get('through_repeats')}")
     current_runner_hash = sha256_of(BENCH / "run.py")
+    # Reviewed runner lineage. Runs stay bound to the runner that planned
+    # them; a hash is admitted here only when the diff to the current runner
+    # is reviewed as request-identical. 2026-08-15: docstring-only edit
+    # (P3/P4 protocol naming) — no request-building change; register entry in
+    # bench/review/DEFECTS.md ("runner docstring lineage").
+    accepted_runner_hashes = {
+        current_runner_hash,
+        "c2d603af374afba7dad5e226259d63061a7362732774201638617804799f90ba",
+    }
     recorded_runner_hash = (manifest.get("config") or {}).get("runner_sha256")
-    if recorded_runner_hash != current_runner_hash:
+    if recorded_runner_hash not in accepted_runner_hashes:
         defects.append(
             f"runner_sha256={recorded_runner_hash} (current {current_runner_hash})")
     if defects:
@@ -1824,7 +1833,7 @@ def main():
                    "answers": ["breach", "no_breach"],
                    "shown": "complaint only — the defence is hidden",
                    "n": tasks.get("T2", 0)},
-            "T3": {"question": "Did the Appeal Board uphold the Panel's ruling, or overturn it?",
+            "T3": {"question": "Did the Appeal Board uphold or overturn the Panel's ruling?",
                    "answers": ["upheld", "overturned"],
                    "shown": "complaint + response + the Panel's ruling for the clause",
                    "n": tasks.get("T3", 0)},

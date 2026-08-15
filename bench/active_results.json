@@ -1,19 +1,24 @@
 {
-  "active_run_ids": [
-    "gpt-5.6-luna-medium-p1",
-    "gpt-5.6-luna-medium-p2",
-    "gpt-5.6-luna-medium-p3",
-    "gpt-5.6-luna-medium-p1r",
-    "gpt-5.6-terra-medium-p1",
-    "gpt-5.6-terra-medium-p2",
-    "gpt-5.6-terra-medium-p3",
-    "claude-sonnet-5-medium-p1",
-    "claude-sonnet-5-medium-p2",
-    "claude-sonnet-5-medium-p3",
-    "claude-haiku-4-5-20251001-p1",
-    "claude-haiku-4-5-20251001-p2",
-    "claude-haiku-4-5-20251001-p3"
-  ],
-  "leaderboard_boards": [],
-  "leaderboard_excluded": []
+ "active_run_ids": [
+  "gpt-5.6-luna-medium-p2",
+  "gpt-5.6-luna-medium-p1",
+  "gpt-5.6-luna-medium-p3",
+  "gpt-5.6-luna-medium-p1r",
+  "gpt-5.6-terra-medium-p1",
+  "gpt-5.6-terra-medium-p2",
+  "gpt-5.6-terra-medium-p3",
+  "claude-sonnet-5-medium-p1",
+  "claude-sonnet-5-medium-p2",
+  "claude-sonnet-5-medium-p3",
+  "claude-haiku-4-5-20251001-p1",
+  "claude-haiku-4-5-20251001-p2",
+  "claude-haiku-4-5-20251001-p3",
+  "claude-opus-5-medium-p1",
+  "claude-opus-5-medium-p3",
+  "gpt-5.6-sol-medium-p1",
+  "gpt-5.6-sol-medium-p2",
+  "gpt-5.6-sol-medium-p3"
+ ],
+ "leaderboard_boards": [],
+ "leaderboard_excluded": []
 }

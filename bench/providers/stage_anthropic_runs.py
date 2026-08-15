@@ -37,6 +37,9 @@ RATES = {
                            "batch_output_per_mtok": 5.0},
     adapter.HAIKU_MODEL: {"batch_input_per_mtok": 0.5,
                           "batch_output_per_mtok": 2.5},
+    # Opus 5 standard $5/$25 per MTok at 2026-08-15; Message Batches 50%.
+    adapter.OPUS_MODEL: {"batch_input_per_mtok": 2.5,
+                         "batch_output_per_mtok": 12.5},
 }
 
 

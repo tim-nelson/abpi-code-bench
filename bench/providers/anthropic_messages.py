@@ -44,9 +44,13 @@ P3_AGGREGATION = "linear_probability_pool"
 
 SONNET_MODEL = "claude-sonnet-5"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
+OPUS_MODEL = "claude-opus-5"
 MODEL_CONFIGS = {
     SONNET_MODEL: {"thinking": {"type": "adaptive"}, "effort": "medium"},
     HAIKU_MODEL: {"thinking": None, "effort": None},
+    # Opus 5 mirrors the Sonnet 5 condition (adaptive thinking, medium
+    # effort) so the cross-tier comparison holds configuration fixed.
+    OPUS_MODEL: {"thinking": {"type": "adaptive"}, "effort": "medium"},
 }
 
 EXPECTED_ANSWERS = {

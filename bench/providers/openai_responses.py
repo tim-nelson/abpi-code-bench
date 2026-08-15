@@ -58,7 +58,8 @@ CANONICAL_CONTRACT = "pmcpa.zero-provider.v2"
 
 MODEL = "gpt-5.6-luna"
 TERRA_MODEL = "gpt-5.6-terra"
-SUPPORTED_MODELS = frozenset((MODEL, TERRA_MODEL))
+SOL_MODEL = "gpt-5.6-sol"
+SUPPORTED_MODELS = frozenset((MODEL, TERRA_MODEL, SOL_MODEL))
 ENDPOINT = "/v1/responses"
 REASONING_EFFORT = "medium"
 MAX_OUTPUT_TOKENS = 4096

@@ -2181,3 +2181,19 @@ still stands for any change that touches a label. The register's own history is
 the argument against going lighter than this — F1 circularity, and R11/R12
 which survived every internal check — so round 4 keeps the two-auditor design
 on the classes it does cover.
+
+## Runner docstring lineage (2026-08-15)
+
+`bench/run.py` received a documentation-only edit after the freeze-day runs
+were planned: its module docstring's protocol summary was corrected from the
+superseded numbering (P3 described as offline selective prediction) to the
+active one (P3 pooled stated confidence via `p3_plan.py`; P4 offline
+selective prediction). No request-building code changed. Because active
+manifests pin `config.runner_sha256`, the site exporter now carries a
+reviewed two-hash runner lineage: the pre-edit hash
+`c2d603af374afba7dad5e226259d63061a7362732774201638617804799f90ba` (all runs
+planned on or before 2026-08-15 afternoon: luna/terra/sonnet/haiku) and the
+current post-edit hash (claude-opus-5 and gpt-5.6-sol runs). Any other
+runner drift still fails closed. Standing rule going forward: treat
+`bench/run.py` as byte-frozen while runs are active; extend the lineage set
+only with a reviewed request-identical diff and a dated entry here.
