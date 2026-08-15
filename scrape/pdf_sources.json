@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "source_snapshot_date": "2026-08-01",
+  "downloads": [
+    {
+      "file": "AUTH-2091-1-08.pdf",
+      "html_file": "AUTH-2091-1-08.html",
+      "case_number": "AUTH/2091/1/08",
+      "reason": "report_pane_mismatch",
+      "url": "https://www.pmcpa.org.uk/media/1276/2091-aug-2008.pdf",
+      "bytes": 70295,
+      "sha256": "524c274c4bd6497d53eaa4960b1b4b032ed4bf389d6469d7be47ec3b53594670",
+      "n_pages": 10,
+      "verification": "CASE AUTH/2091/1/08 GE HEALTHCARE v GUERBET LABORATORIES confirmed on page 1"
+    },
+    {
+      "file": "AUTH-2461-12-11.pdf",
+      "html_file": "AUTH-2461-12-11.html",
+      "case_number": "AUTH/2461/12/11",
+      "reason": "report_pane_mismatch",
+      "url": "https://www.pmcpa.org.uk/media/1570/2461-may-2012.pdf",
+      "bytes": 61123,
+      "sha256": "1dd8631830b12a5d954a891ef1beac4a7f49a094054c1146c4ff3f014285df0c",
+      "n_pages": 3,
+      "verification": "CASE AUTH/2461/12/11 ANONYMOUS v ASTRAZENECA confirmed on page 1"
+    },
+    {
+      "file": "AUTH-2602-5-13.pdf",
+      "html_file": "AUTH-2602-5-13.html",
+      "case_number": "AUTH/2602/5/13",
+      "reason": "report_pane_mismatch",
+      "url": "https://www.pmcpa.org.uk/media/1675/2602-aug-2013.pdf",
+      "bytes": 44595,
+      "sha256": "4986d89b69e098c86aaf2f5d403320ad673ecb3e7447dea496171032c1a2699d",
+      "n_pages": 4,
+      "verification": "CASE AUTH/2602/5/13 ANONYMOUS v CHUGAI confirmed on page 1"
+    },
+    {
+      "file": "AUTH-3195-4-19.pdf",
+      "html_file": "AUTH-3195-4-19.html",
+      "case_number": "AUTH/3195/4/19",
+      "reason": "report_pane_mismatch",
+      "url": "https://www.pmcpa.org.uk/media/3340/3195-25-march-2021.pdf",
+      "bytes": 264332,
+      "sha256": "e30c6135635253899c2a726ef28c3acc6c707c2c004b221f4785c034f7e56b85",
+      "n_pages": 27,
+      "verification": "CASE AUTH/3195/4/19 ANONYMOUS v CHIESI confirmed on page 1"
+    },
+    {
+      "file": "AUTH-2063-10-07.pdf",
+      "html_file": "AUTH-2063-10-07.html",
+      "case_number": "AUTH/2063/10/07",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/3071/2063.pdf",
+      "bytes": 1092709,
+      "sha256": "4ac66eaf4bc34b90fe67679f377dd272d4d7b452ca8b3f7a492bd8a0b0f33e76",
+      "n_pages": 170,
+      "verification": "Review No 59; CASE AUTH/2063/10/07 CONSULTANT PHYSICIAN v ABBOTT occupies PDF pages 144-147"
+    },
+    {
+      "file": "AUTH-2186-11-08.pdf",
+      "html_file": "AUTH-2186-11-08.html",
+      "case_number": "AUTH/2186/11/08",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/1350/2186-feb-2009.pdf",
+      "bytes": 34694,
+      "sha256": "e239efbc71dd534a2f45ff8d5ec9d1a98bad368418728cf13a39954a7c4811cd",
+      "n_pages": 3,
+      "verification": "CASE AUTH/2186/11/08 PHARMACIST PRACTITIONER v ASTRAZENECA confirmed on page 1"
+    },
+    {
+      "file": "CASE-0308-10-24.pdf",
+      "html_file": "CASE-0308-10-24.html",
+      "case_number": "CASE/0308/10/24",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/vs2f4lfh/0308-abridged-case-report-9-dec-2024.pdf",
+      "bytes": 278043,
+      "sha256": "c6409be3ef4a8809fbe50d21b5a071ea212be0f2e772fb275eba0773858d9784",
+      "n_pages": 1,
+      "verification": "CASE/0308/10/24 COMPLAINANT v CSL SEQIRUS confirmed on page 1"
+    },
+    {
+      "file": "CASE-0474-02-25.pdf",
+      "html_file": "CASE-0474-02-25.html",
+      "case_number": "CASE/0474/02/25",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/hwrl0kls/0474-case-report-18-march-25.pdf",
+      "bytes": 273797,
+      "sha256": "618ee52fbba50ef2db0804b5779f1657c302830275169088778871a865bd3746",
+      "n_pages": 1,
+      "verification": "CASE/0474/02/25 COMPLAINANT v BRISTOL MYERS SQUIBB confirmed on page 1"
+    },
+    {
+      "file": "CASE-0479-02-25.pdf",
+      "html_file": "CASE-0479-02-25.html",
+      "case_number": "CASE/0479/02/25",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/sbchvsdf/0479-case-report-12-june-25.pdf",
+      "bytes": 283643,
+      "sha256": "125bd0a990b0f65d1a800f8081ef0136895ad977e46004f131fadf530385371f",
+      "n_pages": 1,
+      "verification": "CASE/0479/02/25 COMPLAINANT v GSK confirmed on page 1"
+    },
+    {
+      "file": "CASE-0592-05-25.pdf",
+      "html_file": "CASE-0592-05-25.html",
+      "case_number": "CASE/0592/05/25",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/pxsaqjc3/0592-case-report-11-september-25.pdf",
+      "bytes": 280519,
+      "sha256": "e97346d28ec7cd7bfd76bb081f0d5160a08c2c622f4a1f5d9f3228b4b68663b6",
+      "n_pages": 1,
+      "verification": "CASE/0592/05/25 COMPLAINANT v ROCHE confirmed on page 1"
+    },
+    {
+      "file": "CASE-0677-07-25.pdf",
+      "html_file": "CASE-0677-07-25.html",
+      "case_number": "CASE/0677/07/25",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/jvvnvhac/0677-case-report-24-october-25.pdf",
+      "bytes": 305724,
+      "sha256": "1e0324b8797366a238e0f6d4452c3c776101690dc772deaf432c426db8adb764",
+      "n_pages": 2,
+      "verification": "CASE/0677/07/25 COMPLAINANT v PFIZER confirmed on page 1"
+    },
+    {
+      "file": "CASE-0816-12-25.pdf",
+      "html_file": "CASE-0816-12-25.html",
+      "case_number": "CASE/0816/12/25",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/ffxaiptl/case-report-0816-8-april-2026.pdf",
+      "bytes": 328471,
+      "sha256": "75ba4efe1d388f003c7a52555660f010587256b63aae990fc1897a91389e991c",
+      "n_pages": 1,
+      "verification": "CASE/0816/12/25 COMPLAINANT v NOVARTIS confirmed on page 1"
+    },
+    {
+      "file": "AUTH-3015-1-18.pdf",
+      "html_file": "AUTH-3015-1-18.html",
+      "case_number": "AUTH/3015/1/18",
+      "reason": "summary_only",
+      "url": "https://www.pmcpa.org.uk/media/1984/3015-aug-2018.pdf",
+      "bytes": 48569,
+      "sha256": "977252292b4211183384148fb51e5e99775de0a879bc5699b558312c445da931",
+      "n_pages": 2,
+      "verification": "CASE AUTH/3015/1/18 VOLUNTARY ADMISSION BY DAIICHI-SANKYO confirmed on page 1"
+    }
+  ],
+  "derivations": [
+    {
+      "file": "AUTH-2063-10-07__pages144-147.pdf",
+      "source_file": "AUTH-2063-10-07.pdf",
+      "html_file": "AUTH-2063-10-07.html",
+      "case_number": "AUTH/2063/10/07",
+      "reason": "derived",
+      "first_page": 144,
+      "last_page": 147,
+      "n_pages": 4,
+      "tool": "ghostscript pdfwrite with omitted info date and canonical trailer ID",
+      "reference_sha256": "a3f18e94aa6f92c8a74f67e35863beb83718b1f25380b36d97c2ce29c4c2d0c4",
+      "verification": "PDF pages 144-147 contain CASE AUTH/2063/10/07 CONSULTANT PHYSICIAN v ABBOTT"
+    }
+  ]
+}

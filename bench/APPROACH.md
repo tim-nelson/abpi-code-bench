@@ -1,98 +1,118 @@
-# How the benchmark measures uncertainty — and how we keep it honest
+# Measuring uncertainty in the active benchmark
 
-> Companion to `DESIGN.md` (what the items are). This is the measurement
-> story: what a "confidence" is here, how each elicitation method produces
-> one, and what "accurate confidence" means against adjudicated ground truth.
+This document describes how T1, T2 and T3 outputs become confidence and
+deployment measurements. Task construction is in [DESIGN.md](DESIGN.md).
 
-## 1. The object being measured
+## 1. Scored object
 
-For every item the model produces an **answer** (breach / no_breach, upheld /
-overturned, in / outwith scope) and, by one of several elicitation methods, a
-**confidence** c ∈ [0,1]. The ground truth is what the adjudicator actually
-decided. A confidence method is GOOD to the extent that c behaves like
-P(answer matches the adjudicator):
+For each item a protocol produces:
 
-- **Calibration** — of all answers given with c≈0.7, ~70% should be right.
-  Measured by reliability diagrams and ECE (equal-mass bins).
-- **Proper score** — Brier = mean (c·correct-indicator gap)²; rewards being
-  right AND knowing how right you are; strictly proper, so honesty is the
-  optimal policy.
-- **Discrimination** — does c rank correct answers above wrong ones (AUROC),
-  and does refusing the least-confident x% cut error fastest
-  (accuracy–coverage / selective risk, the deferral analysis)?
+- an answer (`breach` / `no_breach`, or `upheld` / `overturned`); and
+- confidence `p` that this answer matches the PMCPA adjudication.
 
-One item bank, many elicitation methods: comparisons are within-item, so
-differences are attributable to the METHOD, not to item mix.
+Let `o=1` when the answer matches the label and `o=0` otherwise.
 
-## 2. The elicitation methods (implemented status)
+- **Accuracy:** mean `o`.
+- **Brier:** mean `(p-o)²`; lower is better.
+- **Discrimination:** AUROC of confidence for correct versus incorrect
+  answers.
+- **Calibration:** reliability summaries and ECE. ECE is secondary because it
+  is unstable and bin-sensitive on small task prefixes.
+- **Selective prediction (P4):** risk/accuracy as low-confidence items are
+  deferred, plus AURC and the two binary error directions.
 
-| id | method | paradigm | status |
-| --- | --- | --- | --- |
-| P2 | stated probability alongside the answer | mentalist self-report | live |
-| P1 | answer-only over K perturbed presentations; confidence = modal-answer frequency | behaviourist | live (perturbations: publisher renditions, block order, resampling; temperature only on models that accept it — gpt-4.1/4o, sonnet-4-6, haiku-4-5) |
-| P3 | BDM lottery: choose between betting on your answer and a sure payoff c, sweep c to indifference | behaviourist, revealed preference | live; piloted n=30 (FINDINGS §4.3: implied confidence inversely ranked correctness at pilot scale) |
-| P4 | answer-or-defer at threshold τ | decision-level | free at scoring time: any confidence signal sweeps τ offline; no new calls |
+Scores are reported per task. Any pooled summary is secondary because the
+three tasks answer different questions.
 
-The dissertation's cross-paradigm question (B2) is exactly the P2-vs-P1/P3
-divergence, per item, per model. First partial data (2026-08-02, sonnet):
-P2 compresses into a 0.55–0.75 band (over-confident at the bottom,
-under-confident at the top); P1 with weak perturbation diversity polarises
-toward 1.0 and is over-confident everywhere. Opposite failure modes on the
-same model — measured, not assumed.
+## 2. Active protocols
 
-## 3. What "accurate given the true data" means here
+| id | confidence source | calls per item |
+| --- | --- | ---: |
+| P1 | one stated probability alongside the verdict | 1 |
+| P2 | modal-answer frequency across byte-identical verdict-only requests | K |
+| P3 | linear pool of K byte-identical stated-probability draws | K |
+| P4 | offline threshold sweep over a completed P1, P2 or P3 signal | 0 |
 
-Average calibration is not the whole story: the corpus gives us item classes
-whose APPROPRIATE confidence is known in advance, so miscalibration can be
-localised rather than averaged away:
+P2 starts at K=7. Repeat indices are stable, so P2@3 is the first three calls
+and later top-ups extend rather than replace the evidence. A P2 item with fewer
+than the requested number of parsed calls is incomplete, never silently scored
+at a smaller effective K.
 
-- **Appeal flips** (Panel overturned on appeal): the best-informed humans
-  disagreed. A method that outputs c≈1 on these is over-confident whichever
-  answer it gives.
-- **Burden-of-proof traps** (anonymous, non-contactable complainant; ruled on
-  proof not merits): a model reasoning on merits alone should be — and can be
-  measured being — systematically wrong with high confidence.
-- **Abridged/admitted cases** (company accepted the breach): designed as
-  near-certain items, but the bank carries NONE — all six genuine abridged
-  cases are summary-only stubs with no quotable ruling prose (DEFECTS R15).
-  A design intention, not a live class.
-- **T1 vs T1-triage** (same case, defence hidden): confidence SHOULD fall
-  when the defence is hidden; whether it does is a per-method measurement.
-- Measured null so far: showing the actual clause text moved neither
-  accuracy nor confidence (paired n=83, sonnet) — Code knowledge is not the
-  binding constraint at this scale; case judgment is.
+P3 repeats the exact P1 request. Each answer/probability draw is oriented to
+the same fixed positive label before an equal-weight linear probability pool
+is taken. Its primary answer, confidence, Brier, calibration and P4 view all
+come from that pool at the declared odd K. Single-draw performance,
+within-item dispersion and modal-vote performance are secondary diagnostics.
 
-## 4. Honesty safeguards (all mechanical, all in the repo)
+P1, P2 and P3 differ in compute and aggregation. P2 and P3 each include a
+K-call ensemble answer; neither is a compute-matched causal contrast with
+one-shot P1. We report these as operational system comparisons with call counts
+and exact K visible.
 
-1. **Leakage**: extracts only from segments whose leakage attest is
-   machine-verified (L2 validator recomputes it independently of the
-   builder); a final tripwire drops outcome-citing items at generation; the
-   validator re-checks every quoted span on every run of `bench/validate.py`.
-2. **Contamination**: cases are public. Every item carries
-   `probe_status: untested` until the memorisation probe runs; probed-
-   contaminated items are quarantined, reported separately, never deleted.
-   The rolling post-cutoff holdout (PMCPA publishes continuously) is the
-   clean track.
-3. **No silent failure**: refusals, parse failures and API errors are
-   recorded per call and reported as coverage, never dropped from
-   denominators silently.
-4. **Statistics**: items within a case share narrative, so all CIs are
-   case-blocked bootstrap. Dev split for iteration; test split untouched
-   until the design freezes.
-5. **Reproducibility**: items regenerate byte-identically; every run
-   archives its exact prompts, parameters and raw responses; provenance
-   traces every quoted character back to the fetched HTML/PDF.
+## 3. Paired information comparison
 
-## 5. Run plan — EXECUTED (kept for the record; results in `docs/FINDINGS.md` §4)
+T1 and T2 share the same clause outcome. T1 adds the respondent's response;
+T2 withholds it. On their exact paired intersection we measure:
 
-Phase A (after the item audit passes): one cheap model pair —
-**claude-sonnet-5** and **claude-haiku-4-5** — on a FIXED 150-item dev
-subset, protocols P2 and P1 (K=7; haiku also sweeps temperature, which it
-accepts). Deliverables: per-method reliability diagrams, Brier/ECE/AUROC,
-within-item P2-vs-P1 divergence, and the known-class breakdowns (§3).
-Estimated spend: ≈$6–8 sonnet, ≈$1 haiku.
+- answer changes;
+- accuracy/Brier changes;
+- changes in one-shot, verdict-repeat and repeated-stated confidence; and
+- the distribution of confidence changes when response information is added,
+  without prescribing its direction before seeing results.
 
-Phase B (decision point): whichever method looks most informative gets the
-wider item sweep and the stronger models; P3 (BDM) gets implemented if the
-P2/P1 divergence justifies the third paradigm. Full-bank runs and test-split
-scoring only after the form freeze and contamination pass.
+T2 uncertainty is not a defect: it represents complaint-stage triage. The
+analysis must not describe T2 as a complete-record legal decision.
+
+## 4. Honest denominators and uncertainty
+
+Every report includes:
+
+- intended item rank and attempted count;
+- completed and parsed calls;
+- incomplete P2/P3 groups;
+- refused/errored calls and retry status; and
+- exact model snapshot and request configuration.
+
+Cross-model comparisons use exact shared task ranks, not the intersection of
+successful responses. Transient errors are retried by stable call id; persistent
+errors stay visible.
+
+Clauses from one case share narrative and are correlated. Confidence intervals
+therefore resample canonical cases/source-report sibling groups. Report a
+case-weighted sensitivity beside the ordinary item-weighted score when a few
+cases contribute many clauses.
+
+## 5. Cumulative execution
+
+One canonical case-aware ordering supports nested checkpoints:
+
+1. N=1 configuration check.
+2. N=10–20 prompt/output inspection.
+3. Fixed cost-based extensions such as 50, 100, 200 and 300.
+4. Full T3 where affordable and useful.
+
+These are prefixes of one run family, not independent replications. Accuracy
+must not secretly determine the final stopping point; if it does, the analysis
+is labelled exploratory.
+
+## 6. Contamination and human answerability
+
+Cases are public, so each model receives an exact-input/task-specific recall
+probe. Completion/publication date defines temporal strata. A complaint date
+does not establish that an item post-dates model training.
+
+T1–T3 have a direct reasoning chain from shown evidence to adjudicated label.
+That is a construct-validity claim, not an empirical claim about human
+accuracy. A blinded human subset would be a useful later baseline; no human
+performance number is asserted until measured.
+
+## 7. Historical evidence
+
+Pre-repair Phase A, original T3 and legacy P3 lottery runs are exploratory
+archive material.
+Their prompts differ from the active bank and they do not populate the active
+leaderboard. Fresh results begin from an empty leaderboard.
+
+Archived protocol identifiers are immutable. In those absent/v1-contract
+files, legacy P2 means stated confidence and legacy P1 means repeated verdicts;
+the scorer maps them explicitly rather than rewriting historical runs.

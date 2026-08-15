@@ -1,8 +1,10 @@
 """Generate benchmark items from L2 case objects.
 
-    python3 bench/generate.py                        # real L2 if present, else the fixture
+    python3 bench/generate.py                        # requires the real L2 corpus
+    python3 bench/generate.py --use-fixture --out /tmp/pmcpa-fixture-items.jsonl \
+        --exclusions /tmp/pmcpa-fixture-exclusions.jsonl
     python3 bench/generate.py --cases data/l2/cases.jsonl --out bench/items.jsonl
-    python3 bench/generate.py --tasks T1,T4
+    python3 bench/generate.py --tasks T1,T2,T3
 
 Reads `data/l2/cases.jsonl` (l2/SPEC.md §2) and emits one JSON object per line
 conforming to `bench/item_schema.json`. Stdlib only; byte-deterministic.
@@ -16,7 +18,7 @@ re-checked independently by bench/validate.py:
   2. `metadata_shown` is an allowlist. Outcome fields, sanction fields, the
      procedure flags, the case number, the subject line and the meta
      description are excluded by construction, not by filtering.
-  3. T1 shows complaint + response; T1-triage shows complaint only.
+  3. T1 shows complaint + response; T2 shows complaint only.
   4. Cases that share a source report (siblings) always land in the same split.
 
 The attest is *not* recomputed here. DESIGN.md §1.3: leakage is a data
@@ -47,18 +49,12 @@ DEFAULT_EXCLUSIONS = BENCH / "exclusions.jsonl"
 # different clause and the ordinary machinery handles it.
 DEFAULT_SLOT_CORRECTIONS = ROOT / "data" / "l2" / "clause_slot_corrections.jsonl"
 
-# T4 (in_scope / outwith_scope) is WITHDRAWN, not merely disabled --
-# bench/review/DEFECTS.md D1. Its positive class came from the bare word
-# 'outwith', which is ordinary Scottish English in these reports ('outwith the
-# licence', 'outwith the SOP'); all 19 positive items were false, some of them
-# on cases that carried breaches, and on one the trigger word sat inside the
-# quoted extract as a learnable spurious cue. The genuine outwith cases -- the
-# 73 whose status line says so, now the source of procedure.outwith_scope -- are
-# report-less, so there is nothing to quote and the true class is structurally
-# absent. The task needs a different design, not a better regex; until then the
-# bank must not carry it.
-TASKS = ("T1", "T1-triage", "T3")
-WITHDRAWN_TASKS = {"T4": "DEFECTS.md D1 -- keyword false friend; pending redesign"}
+# The active benchmark has three tasks. T2 is the complaint-only condition
+# formerly emitted as `T1-triage`; giving it a first-class task id makes the
+# public sequence match the experiment. Historical banks and run archives keep
+# their old ids and are never rewritten.
+TASKS = ("T1", "T2", "T3")
+WITHDRAWN_TASKS = {}
 QUOTABLE_KINDS = ("complaint", "response")
 # T3 quotes the Panel ruling under appeal (DESIGN.md §5 table): panel_ruling
 # segments are NEVER attest-clean -- they are rulings -- so their gate is
@@ -92,7 +88,7 @@ MIN_EXTRACT_CHARS = 200
 #   verdicts, appeal, sanctions   - the labels
 #   procedure.*                   - abridged/voluntary_admission/outwith_scope
 #                                   are outcome-bearing (outwith_scope IS the
-#                                   T4 label)
+#                                   and are outcome-bearing)
 #   subject                       - L2 C4: the hero h2 routinely states the
 #                                   outcome ("No breach of the Code")
 #   title                         - carries procedural suffixes
@@ -1249,7 +1245,7 @@ def render_extract(resolver, segments, panel_heads=None):
     """Concatenate quoted spans with a structural label per span.
 
     `panel_heads` carries the per-block R32(i) decision; a caller that passes
-    none is quoting no ruling (T1/T1-triage) and the lookup never fires.
+    none is quoting no ruling (T1/T2) and the lookup never fires.
     """
     chunks, prov = [], []
     for seg in segments:
@@ -1288,7 +1284,7 @@ def rendition_variants(case, kinds, resolver):
     (summary_rendition / abstract_rendition / the PDF abstract), cut before
     the outcome-stating tail. A rendition retells the ALLEGATION, not the
     defence, so variants attach only to allegation-only extracts
-    (T1-triage, T4); swapping one into a complaint+response item would
+    (T2); swapping one into a complaint+response item would
     silently change the information set."""
     if tuple(kinds) != ("complaint",):
         return []
@@ -1334,10 +1330,11 @@ def rendition_covers(case, verdict, clause, rendition_text, kinds):
     """(bool, reason) -- may this retelling stand in for the item's extract?
 
     DEFECTS R32(ii). Renditions are CASE-level and items are clause-level, and
-    run.py REPLACES the extract with the rendition under P1/P3. On
+    the historical runner replaced the extract with a rendition under legacy
+    P1/P3. On
     AUTH/2015/7/07 both renditions retell only matter 1 (the SEP2/SEP3 claim)
-    while `T1-triage-7f622e4d7d058ee0` asks about Clause 7.3, which lives in
-    matter 3 -- so two of that item's P1 variants showed material that alleges
+    while the complaint-only item for Clause 7.3 lives in
+    matter 3 -- so two legacy-P1 variants showed material that alleges
     7.2 and 7.4 and never touches the preference claim. That is not a paraphrase
     perturbation; it is a different information set, which
     `rendition_variants`' own docstring says must not happen.
@@ -1673,7 +1670,7 @@ def build_case_items(case, group_key, split, resolver, tasks, problems, skips, u
         # DEFECTS R25. A rendition shorter than MIN_RENDITION_CHARS has been
         # refused since l2.1 ("not worth a benchmark item"); the PRIMARY
         # extract -- the thing the model is actually asked to rule on -- had no
-        # floor at all, and AUTH/1798/2/06 shipped two T1-triage items whose
+        # floor at all, and AUTH/1798/2/06 shipped two complaint-only items whose
         # entire complaint was 194 characters, truncated mid-sentence and
         # spliced with a clause traceable to AUTH/1797/2/06's response (the
         # neighbouring column of the same two-column Review page).
@@ -1826,14 +1823,14 @@ def build_case_items(case, group_key, split, resolver, tasks, problems, skips, u
                 if v_year is not None and clause is not None else None),
         }
         panel = verdict.get("panel")
-        # DEFECTS R13. A row L2 could not attribute to the Panel yields no T1
+        # DEFECTS R13. A row L2 could not attribute to the Panel yields no T1/T2
         # label, and until now yielded no exclusion row either: the branch below
         # simply did not fire and the candidate vanished. Seven cases -- every
         # verdict row unattributed -- left neither an item nor a reasoned row,
         # which is exactly the invisible skip the durable-exclusions rule exists
         # to stop. The row is a legitimate non-item; it just has to say so.
         if panel not in ("breach", "no_breach"):
-            for task in ("T1", "T1-triage"):
+            for task in ("T1", "T2"):
                 if task in tasks:
                     exclude(skips, num, task, clause, "no_panel_ruling",
                             f"L2 attributes no Panel ruling to this clause "
@@ -1841,8 +1838,8 @@ def build_case_items(case, group_key, split, resolver, tasks, problems, skips, u
         if panel in ("breach", "no_breach"):
             if "T1" in tasks:
                 make("T1", ("complaint", "response"), clause_ref, panel, verdict)
-            if "T1-triage" in tasks:
-                make("T1-triage", ("complaint",), clause_ref, panel, verdict)
+            if "T2" in tasks:
+                make("T2", ("complaint",), clause_ref, panel, verdict)
 
         # T3 eligibility, tightened per DEFECTS D3: the case was appealed AND
         # both rulings are attributed from the respective body's own prose. L2
@@ -1955,7 +1952,8 @@ def _ensure_edition_lookup():
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cases", default=str(DEFAULT_CASES), help="L2 cases.jsonl (default: %(default)s)")
-    ap.add_argument("--fixture", default=str(FIXTURE_CASES), help="fallback cases when --cases is absent")
+    ap.add_argument("--fixture", default=str(FIXTURE_CASES),
+                    help="invented cases used only with --use-fixture (default: %(default)s)")
     ap.add_argument("--panes", default=str(FIXTURE_PANES), help="fixture pane text")
     ap.add_argument("--l1", default=str(L1_RECORDS), help="L1 records.jsonl for text resolution")
     ap.add_argument("--pdf-records", default=str(L1_PDF_RECORDS))
@@ -1975,20 +1973,24 @@ def main(argv=None):
     if unknown:
         raise SystemExit(f"unknown task(s): {unknown}; known: {list(TASKS)}")
 
-    cases_path = pathlib.Path(args.cases)
-    using_fixture = args.use_fixture or not cases_path.exists()
+    using_fixture = args.use_fixture
     if using_fixture:
         cases_path = pathlib.Path(args.fixture)
         if not cases_path.exists():
-            raise SystemExit(f"neither {args.cases} nor {args.fixture} exists")
+            raise SystemExit(f"--use-fixture requested but fixture cases are absent: {cases_path}")
         print("!" * 72)
-        if args.use_fixture:
-            print("!! --use-fixture: ignoring", args.cases)
-        else:
-            print("!! WARNING: real L2 cases not found at", args.cases)
+        print("!! --use-fixture: ignoring", args.cases)
         print("!! Building from the FIXTURE:", cases_path)
         print("!! Items generated from invented TEST/xxxx cases. Not a benchmark.")
         print("!" * 72)
+    else:
+        cases_path = pathlib.Path(args.cases)
+        if not cases_path.exists():
+            raise SystemExit(
+                f"real L2 cases not found at {cases_path}; refusing to substitute the invented "
+                "fixture. Build/retrieve L2 first, or pass --use-fixture explicitly for a "
+                "fixture-only smoke build."
+            )
 
     cases = read_cases(cases_path)
     if not cases:
@@ -2014,16 +2016,17 @@ def main(argv=None):
     # neither an item nor a reasoned row -- exactly the silent drop the
     # exclusions file exists to prevent (DEFECTS R13). L2 writes the deletions
     # down; this reads them and books one row per task.
-    for row in read_slot_corrections(args.slot_corrections):
-        if row["to_clause"] is not None:
-            continue
-        for task in tasks:
-            exclude(skips, row["case_number"], task, row["from_clause"],
-                    "clause_not_in_case_text",
-                    f"the outcome slot names Clause {row['from_clause']}, which the case's own "
-                    f"text never mentions (it names {', '.join(row['clause_names_in_text'])}); "
-                    f"the verdict row is deleted by {row['adjudication']} and there is no ruling "
-                    f"to label")
+    if not using_fixture:
+        for row in read_slot_corrections(args.slot_corrections):
+            if row["to_clause"] is not None:
+                continue
+            for task in tasks:
+                exclude(skips, row["case_number"], task, row["from_clause"],
+                        "clause_not_in_case_text",
+                        f"the outcome slot names Clause {row['from_clause']}, which the case's own "
+                        f"text never mentions (it names {', '.join(row['clause_names_in_text'])}); "
+                        f"the verdict row is deleted by {row['adjudication']} and there is no ruling "
+                        f"to label")
     co_reported = {}
     for num, key in groups.items():
         co_reported.setdefault(key, []).append(num)
@@ -2110,7 +2113,11 @@ def main(argv=None):
           f"or a co-reported case number; 0 undecided spellings")
     # A read registry that fires on nothing is dead code claiming to be a
     # repair, so its firing is printed and asserted, never assumed.
-    if len(MATTER_SCOPE_REFUSALS) and not scoped:
+    # The registry names real PMCPA cases and cannot fire on the invented
+    # fixture. Its load-bearing assertion therefore belongs to real builds;
+    # applying it to --use-fixture made the documented offline smoke path
+    # refuse after writing its items.
+    if not using_fixture and len(MATTER_SCOPE_REFUSALS) and not scoped:
         raise SystemExit("REFUSING: MATTER_SCOPE_REFUSALS has rows and none of them fired -- "
                          "the spans have moved, or the registry is stale.")
     for case_number, clause, why in sorted(set(scoped)):
@@ -2118,8 +2125,6 @@ def main(argv=None):
     folded = sum(1 for it in items if it.get("sibling_case_numbers"))
     print(f"dedupe     : {before_dedupe} built -> {len(items)} kept "
           f"({before_dedupe - len(items)} sibling duplicates folded into {folded} item(s))")
-    for name, why in sorted(WITHDRAWN_TASKS.items()):
-        print(f"withdrawn  : {name} -- {why}")
     # The durable exclusion log. Written even when empty, so its absence means
     # "the generator did not run", never "nothing was excluded".
     excl = pathlib.Path(args.exclusions)

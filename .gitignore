@@ -1,17 +1,43 @@
-# Pending the owner's tracking decision (docs/WORKING_RULES.md backlog): raw HTML corpus untracked for now
+# Downloaded source bytes stay local.  Their URLs and publication hashes are
+# tracked as the retrieval contract; the files themselves are rebuilt with
+# scrape/bootstrap.py.
 data/html/
 data/pdf/
+data/code/html/
+data/code/pdf/
 data/publications/
 data/literature/
-# Regenerable layers and build artefacts
+
+# Regenerable data layers.  These are outputs, not repository inputs.
 data/l1/
-site/build/
-site/node_modules/
-site/static/data/
-site/.svelte-kit/
+data/l2/cases.jsonl
+data/l2/audit_report.json
+data/code/clauses.jsonl
+data/code/code_years.json
+data/code/constitution.jsonl
+data/code/pdf_clauses.jsonl
+data/code/pdf_clauses_exclusions.jsonl
+bench/items.jsonl
+bench/exclusions.jsonl
+bench/t5_items.jsonl
+bench/t5_exclusions.jsonl
+bench/subsets/
+
+# Model-evaluation ledgers contain rendered source extracts and stay local.
+# Keep only the operational note in a future clean public history.
+bench/runs/*
+!bench/runs/README.md
+
+# The review website is private and is not part of the public repository.
+site/
+
+# Interpreter/build artefacts.
+__pycache__/
+*.py[cod]
 dissertation/*.aux
 dissertation/*.log
 dissertation/*.out
 dissertation/*.toc
+
 # Secrets
 .env

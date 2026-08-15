@@ -15,7 +15,7 @@ WHAT IS PROBED, AND AT WHAT GRAIN
 Contamination is a property of a CASE, not of an item: every item drawn from
 AUTH/1234/5/67 is contaminated or not together. So items are deduped to cases
 and each case is probed exactly once. The extract shown is complaint-only, the
-same span T1-triage serves, because the complaint is the part of the report a
+same span T2 serves, because the complaint is the part of the report a
 model would have to recognise from -- the response and the ruling are not shown.
 Cases whose only items are T3 are skipped rather than probed with a
 panel_ruling span, which would hand the model the outcome.
@@ -60,7 +60,7 @@ contamination is a property of a case AND a model, never of the case alone.
 WHY THIS PROBE CANNOT POISON A LATER RUN
 The prompt contains the complaint extract and a recall question. It contains no
 case number, no ruling, no outcome, no clause list -- strictly LESS than
-T1-triage already shows a model, plus a question about identity. The true case
+T2 already shows a model, plus a question about identity. The true case
 number is held only on our side and is never sent; it enters the picture for the
 first time in --score, offline, comparing our label against what the model
 volunteered. So no model can learn the answer by being probed, repeated probes
@@ -88,7 +88,7 @@ RUNS = BENCH / "runs"
 
 # Cases are probed from complaint-only spans. T3 quotes the panel ruling, so a
 # T3 item is never an acceptable source; preference order among the rest.
-SOURCE_TASKS = ("T1-triage", "T1")
+SOURCE_TASKS = ("T2", "T1")
 
 # The per-chunk banners generate.py writes into extract_text. Chunks appear in
 # DOCUMENT order, not kind order (bench/review/DEFECTS.md D5), so an extract can
@@ -166,7 +166,7 @@ def complaint_only(item):
 
     Keeps only [COMPLAINT] chunks and re-joins them exactly as generate.py would
     have rendered a complaint-only extract, so what the probe shows is
-    byte-identical to the T1-triage span for that case. On any unexpected shape
+    byte-identical to the T2 span for that case. On any unexpected shape
     it returns None and the case is skipped -- a probe that might be showing the
     respondent's case is worse than no probe.
     """
@@ -390,7 +390,7 @@ def merge_probes(rows, probes_path):
 def self_test(items_path):
     """Unit-test number normalisation, classification and extract isolation.
 
-    The extract check runs against the real bank: for every T1-triage item the
+    The extract check runs against the real bank: for every T2 item the
     reconstruction must reproduce extract_text byte for byte (it is already
     complaint-only), and no reconstructed extract may contain a response or
     panel-ruling banner. That is the invariant that keeps the probe honest.
@@ -444,10 +444,10 @@ def self_test(items_path):
         items = load_jsonl(path)
         n_triage = n_multi = 0
         for item in items:
-            if item["task"] == "T1-triage":
+            if item["task"] == "T2":
                 n_triage += 1
                 if complaint_only(item) != item["inputs"]["extract_text"]:
-                    failures.append(f"T1-triage {item['item_id']}: reconstruction != extract_text")
+                    failures.append(f"T2 {item['item_id']}: reconstruction != extract_text")
             elif item["task"] == "T1":
                 got = complaint_only(item)
                 if got is None:
@@ -461,7 +461,7 @@ def self_test(items_path):
                 if complaint_only(item) is not None:
                     failures.append(f"T3 {item['item_id']}: must be refused, it quotes the ruling")
         print(f"\nextract isolation ({path.name}: {len(items)} items)")
-        print(f"  ok    {n_triage} T1-triage reconstructions are byte-identical to extract_text")
+        print(f"  ok    {n_triage} T2 reconstructions are byte-identical to extract_text")
         print(f"  ok    no reconstruction contains a response or panel-ruling banner "
               f"({n_multi} T1 item(s) interleave chunks, the case this guards)")
 
@@ -480,8 +480,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--items", default=str(DEFAULT_ITEMS))
-    ap.add_argument("--model", default=runner.DEFAULT_MODEL,
-                    help="default %(default)s -- state the model in any writeup")
+    ap.add_argument("--model", default="",
+                    help="exact model identity; required with --live")
     ap.add_argument("--limit", type=int, default=10,
                     help="cases to probe (default %(default)s); 0 = all")
     ap.add_argument("--splits", default="", help="comma-separated split filter")
@@ -504,6 +504,11 @@ def main(argv=None):
         return self_test(args.items)
     if args.score:
         return main_score(args)
+
+    if not args.model:
+        if not args.dry_run:
+            raise SystemExit("--live requires an explicit --model identity")
+        args.model = runner.UNSELECTED_MODEL
 
     if args.thinking == "adaptive" and any(args.model.startswith(p)
                                            for p in runner.NO_ADAPTIVE_THINKING):

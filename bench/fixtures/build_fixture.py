@@ -16,13 +16,13 @@ Deterministic: same source, same bytes.
 CONTENT IS INVENTED. Case numbers are TEST/xxxx/x/26, companies and products do
 not exist, and no sentence is taken from a real PMCPA report.
 
-TEST/0002/1/26's complaint carries one sentence that is here to be TRIPPED
+TEST/9002/1/26's complaint carries one sentence that is here to be TRIPPED
 OVER: "in Case TEST/0009/9/25 a breach of Clause 7.10 was ruled". It is a
 decimal clause number in a ruling frame -- the exact shape DEFECTS R24 proved
 three layers of leakage checking were blind to -- inside a citation of another
 case, which is the one class that must stay quotable. So the fixture asserts
 both halves at once: if the decimal fix regresses the sentence stops being
-seen at all, and if the precedent exemption regresses the TEST/0002
+seen at all, and if the precedent exemption regresses the TEST/9002
 item vanishes from a fixture build with a `tripwire` exclusion row. verify/ruling_battery.py is the same
 argument stated as a table.
 """
@@ -49,38 +49,38 @@ PANE_BLOCKS = {
         "summary": [
             ("summary", """Case Summary
 
-TEST/0001/1/26 and TEST/0002/1/26
+TEST/9001/1/26 and TEST/9002/1/26
 Health professional and anonymous complainant v Brackenmoor Pharma Ltd
 Zentaril leavepiece and webinar slides
 
-The Panel ruled a breach of the Code in Case TEST/0001/1/26 because the leavepiece made a comparative claim which the company could not substantiate, and because the presentation of the accompanying graph did not maintain a high standard. No breach of the Code was ruled in Case TEST/0002/1/26 because the complainant, who was anonymous and non-contactable, did not establish the allegation on the balance of probabilities.
+The Panel ruled a breach of the Code in Case TEST/9001/1/26 because the leavepiece made a comparative claim which the company could not substantiate, and because the presentation of the accompanying graph did not maintain a high standard. No breach of the Code was ruled in Case TEST/9002/1/26 because the complainant, who was anonymous and non-contactable, did not establish the allegation on the balance of probabilities.
 
 Completed 12 March 2026"""),
         ],
         "report": [
-            ("heading", """CASE TEST/0001/1/26 AND CASE TEST/0002/1/26
+            ("heading", """CASE TEST/9001/1/26 AND CASE TEST/9002/1/26
 
 HEALTH PROFESSIONAL AND ANONYMOUS COMPLAINANT v BRACKENMOOR PHARMA LTD
 
 Zentaril leavepiece and webinar slides"""),
             ("abstract", """A consultant cardiologist complained about a printed leavepiece for Zentaril (rilvacaftor), and a separate anonymous complainant raised the content of a webinar slide about the same medicine. Both matters were taken up with Brackenmoor Pharma Ltd. The Panel ruled a breach of the Code in relation to the leavepiece and ruled no breach in relation to the webinar."""),
-            ("h_complaint_1", "1 COMPLAINT (Case TEST/0001/1/26)"),
+            ("h_complaint_1", "1 COMPLAINT (Case TEST/9001/1/26)"),
             ("complaint_1", """I am a consultant cardiologist working in an NHS trust in the north of England. At a meeting last month a representative from Brackenmoor Pharma left me a printed leavepiece for Zentaril (rilvacaftor) which I believe misrepresents the evidence.
 
 The leavepiece is headed 'The only once-daily therapy proven to cut hospitalisation' and repeats that wording twice more inside. No comparator is named anywhere on the piece. The only reference given is to a single open-label study in 84 patients which, so far as I can establish, did not report hospitalisation as a pre-specified endpoint. The figure '42% fewer admissions' appears beside a bar chart whose vertical axis begins at 30%, which greatly exaggerates the visual difference between the two bars.
 
 I raised this with the representative at the time and was told that the claim had been 'signed off centrally'. I do not consider that the piece can be substantiated on the evidence cited, and the presentation of the chart is in my view designed to leave a stronger impression than the data support. I have not been able to find the study referenced in the piece on any trials register."""),
-            ("h_response_1", "RESPONSE (Case TEST/0001/1/26)"),
+            ("h_response_1", "RESPONSE (Case TEST/9001/1/26)"),
             ("response_1", """Brackenmoor Pharma Ltd submitted that the leavepiece had been certified in accordance with its standard operating procedures and that the claim was supported by the study cited, a copy of which was provided.
 
 The company submitted that the phrase 'the only once-daily therapy' was a statement of fact about the licensed dosing schedules available in the therapy area at the date of certification, and that no comparison with any named product was intended or made. The company accepted that the study was open-label and that hospitalisation was a secondary endpoint, but submitted that the endpoint had been pre-specified in the protocol and that the difference reported was statistically significant.
 
 As to the bar chart, the company submitted that the axis had been truncated for legibility, that both bars carried their absolute values as data labels, and that the underlying figures were stated in the reference. The company did not accept that the piece was misleading. It confirmed that the leavepiece had been withdrawn from use and that it would not be recertified in its current form."""),
-            ("h_ruling_1", "PANEL RULING (Case TEST/0001/1/26)"),
+            ("h_ruling_1", "PANEL RULING (Case TEST/9001/1/26)"),
             ("ruling_1", """The Panel noted that a claim to be 'the only' therapy proven to achieve an outcome was a comparative claim, whether or not a competitor was named, and that such a claim had to be capable of substantiation by direct comparative evidence. The single open-label study cited did not provide that evidence. The Panel therefore ruled a breach of Clause 6.1 of the 2021 Code.
 
 The Panel further considered that truncating the axis of the bar chart at 30% exaggerated the difference between the two columns and that the piece as a whole did not maintain a high standard. The Panel ruled a breach of Clause 9.1 of the 2021 Code."""),
-            ("h_complaint_2", "2 COMPLAINT (Case TEST/0002/1/26)"),
+            ("h_complaint_2", "2 COMPLAINT (Case TEST/9002/1/26)"),
             ("complaint_2", """I wish to remain anonymous and I do not wish to be contacted about this complaint.
 
 Brackenmoor Pharma ran a webinar in January for prescribers in respiratory medicine. During the session one of the slides about Zentaril showed a patient case in which the dose was doubled after four weeks. That is not what the summary of product characteristics says, and I believe the audience were left with the impression that dose escalation of this kind is routine when it is not.
@@ -88,11 +88,11 @@ Brackenmoor Pharma ran a webinar in January for prescribers in respiratory medic
 I did not keep a copy of the slides and I am not able to say which speaker presented them or how many people attended. I am raising it because I think prescribers were misled.
 
 I would add that in Case TEST/0009/9/25 a breach of Clause 7.10 was ruled on a slide deck which described dose escalation in almost identical terms, so this is not a novel point."""),
-            ("h_response_2", "RESPONSE (Case TEST/0002/1/26)"),
+            ("h_response_2", "RESPONSE (Case TEST/9002/1/26)"),
             ("response_2", """Brackenmoor Pharma Ltd submitted that it had reviewed the recording of the webinar and the certified slide deck and that no slide showed a doubling of the dose of Zentaril at four weeks. The certified deck contained one patient case in which the dose was adjusted within the licensed range at week eight, in line with the summary of product characteristics.
 
-The company noted that in Case TEST/0001/1/26 the Panel ruled a breach of Clause 6.1 in relation to a separate item, and submitted that the two matters were entirely unconnected. The company submitted that in the absence of a copy of the slide complained of, or any detail identifying the session, it was not in a position to investigate further, and that the material actually used complied with the Code."""),
-            ("h_ruling_2", "PANEL RULING (Case TEST/0002/1/26)"),
+The company noted that in Case TEST/9001/1/26 the Panel ruled a breach of Clause 6.1 in relation to a separate item, and submitted that the two matters were entirely unconnected. The company submitted that in the absence of a copy of the slide complained of, or any detail identifying the session, it was not in a position to investigate further, and that the material actually used complied with the Code."""),
+            ("h_ruling_2", "PANEL RULING (Case TEST/9002/1/26)"),
             ("ruling_2", """The Panel noted that the complainant bore the burden of proving the matter complained of on the balance of probabilities. The complainant was anonymous and had stated that they did not wish to be contacted, and no copy of the slide was provided. The company had produced the certified deck, which did not contain the material described.
 
 The Panel considered that the complainant had not established that the audience had been misled and ruled no breach of Clause 7.2 of the 2021 Code."""),
@@ -102,7 +102,7 @@ The Panel considered that the complainant had not established that the audience 
         "summary": [
             ("summary", """Case Summary
 
-TEST/0003/2/26
+TEST/9003/2/26
 Nordwyck Laboratories Ltd v Halveston Biosciences Ltd
 Olvexa journal advertisement
 
@@ -111,7 +111,7 @@ An inter-company complaint about a journal advertisement. The Panel ruled breach
 Completed 28 April 2026"""),
         ],
         "report": [
-            ("heading", """CASE TEST/0003/2/26
+            ("heading", """CASE TEST/9003/2/26
 
 NORDWYCK LABORATORIES LTD v HALVESTON BIOSCIENCES LTD
 
@@ -145,7 +145,7 @@ The Appeal Board considered that the legibility of an adverse event reporting st
     },
     APPEAL_PDF: {
         "flow": [
-            ("heading", """Case TEST/0003/2/26 - Nordwyck Laboratories Ltd v Halveston Biosciences Ltd - Olvexa journal advertisement"""),
+            ("heading", """Case TEST/9003/2/26 - Nordwyck Laboratories Ltd v Halveston Biosciences Ltd - Olvexa journal advertisement"""),
             ("complaint", """The complainant company objected to a journal advertisement for Olvexa (bemtizumab) which appeared in the February issue of a UK respiratory journal.
 
 At the head of the page the advertisement claimed 'Olvexa: superior symptom control from week 2'. The single reference given was a pooled analysis of two placebo-controlled trials; neither trial compared Olvexa directly with Prantiva or with any other named therapy. In the complainant's submission a superiority claim required direct comparative evidence, which the cited analysis did not supply.
@@ -163,7 +163,7 @@ On presentation, the respondent said the prescribing information followed its in
         "summary": [
             ("summary", """Case Summary
 
-TEST/0004/3/26
+TEST/9004/3/26
 Member of the public v Nordwyck Laboratories Ltd
 Corporate social media post
 
@@ -172,7 +172,7 @@ A member of the public complained about a corporate social media post concerning
 Completed 5 June 2026"""),
         ],
         "report": [
-            ("heading", """CASE TEST/0004/3/26
+            ("heading", """CASE TEST/9004/3/26
 
 MEMBER OF THE PUBLIC v NORDWYCK LABORATORIES LTD
 
@@ -282,12 +282,12 @@ def segment(kind, file, pane, block, source, clean, **failed):
 # --- the four cases --------------------------------------------------------
 
 CASES = [
-    # (a) clean breach case; co-reported with TEST/0002 (sibling rule exercise)
+    # (a) clean breach case; co-reported with TEST/9002 (sibling rule exercise)
     {
         "schema_version": "l2.1",
-        "case_number": receipt("TEST/0001/1/26", "unanimous", {"meta": "TEST/0001/1/26", "h1": "TEST/0001/1/26"}),
+        "case_number": receipt("TEST/9001/1/26", "unanimous", {"meta": "TEST/9001/1/26", "h1": "TEST/9001/1/26"}),
         "source_files": [SHARED],
-        "sibling_cases": ["TEST/0002/1/26"],
+        "sibling_cases": ["TEST/9002/1/26"],
         "title": receipt("Health professional v Brackenmoor Pharma Ltd", "h1_wins",
                          {"h1": "Health professional v Brackenmoor Pharma Ltd",
                           "title_tag": "Health professional v Brackenmoor Pharma Ltd - PMCPA"}),
@@ -366,12 +366,12 @@ CASES = [
     },
     # (b) no-breach on burden of proof; anonymous, non-contactable complainant.
     #     Its response segment fails the attest (it quotes the sibling ruling),
-    #     so no T1 item can be built -- only T1-triage.
+    #     so no T1 item can be built -- only T2.
     {
         "schema_version": "l2.1",
-        "case_number": receipt("TEST/0002/1/26", "unanimous", {"meta": "TEST/0002/1/26", "h1": "TEST/0002/1/26"}),
+        "case_number": receipt("TEST/9002/1/26", "unanimous", {"meta": "TEST/9002/1/26", "h1": "TEST/9002/1/26"}),
         "source_files": [SHARED],
-        "sibling_cases": ["TEST/0001/1/26"],
+        "sibling_cases": ["TEST/9001/1/26"],
         "title": receipt("Anonymous v Brackenmoor Pharma Ltd", "h1_wins",
                          {"h1": "Anonymous v Brackenmoor Pharma Ltd",
                           "title_tag": "Anonymous v Brackenmoor Pharma Ltd - PMCPA"}),
@@ -437,7 +437,7 @@ CASES = [
     #     complaint/response segments).
     {
         "schema_version": "l2.1",
-        "case_number": receipt("TEST/0003/2/26", "unanimous", {"meta": "TEST/0003/2/26", "h1": "TEST/0003/2/26"}),
+        "case_number": receipt("TEST/9003/2/26", "unanimous", {"meta": "TEST/9003/2/26", "h1": "TEST/9003/2/26"}),
         "source_files": [APPEAL],
         "sibling_cases": [],
         "title": receipt("Nordwyck Laboratories Ltd v Halveston Biosciences Ltd", "h1_wins",
@@ -524,7 +524,7 @@ CASES = [
     # (d) outwith scope: no verdicts at all.
     {
         "schema_version": "l2.1",
-        "case_number": receipt("TEST/0004/3/26", "unanimous", {"meta": "TEST/0004/3/26", "h1": "TEST/0004/3/26"}),
+        "case_number": receipt("TEST/9004/3/26", "unanimous", {"meta": "TEST/9004/3/26", "h1": "TEST/9004/3/26"}),
         "source_files": [SCOPE],
         "sibling_cases": [],
         "title": receipt("Member of the public v Nordwyck Laboratories Ltd", "h1_wins",

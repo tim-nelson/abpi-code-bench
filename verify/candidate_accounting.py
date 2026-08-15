@@ -12,7 +12,7 @@ that each candidate resolve exactly one way.
 
 The candidate model, from bench/DESIGN.md:
 
-    T1, T1-triage   one candidate per verdict row on every case
+    T1, T2          one candidate per verdict row on every case
     T3              one candidate per verdict row, but only on appealed cases
 
     python3 verify/candidate_accounting.py
@@ -44,7 +44,7 @@ def main():
         for v in d.get("verdicts") or []:
             clause = v.get("clause")
             expected.add((num, clause, "T1"))
-            expected.add((num, clause, "T1-triage"))
+            expected.add((num, clause, "T2"))
             if appealed:
                 expected.add((num, clause, "T3"))
 

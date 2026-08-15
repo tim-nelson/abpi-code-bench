@@ -1,179 +1,205 @@
-# ABPI Code Bench — harness
+# ABPI Code Bench harness
 
-> Status: SKELETON, built and verified against a **fixture**. `data/l2/cases.jsonl`
-> is being built in parallel; nothing here has been run against real case text.
-> Design rationale lives in [DESIGN.md](DESIGN.md); the record shape this
-> consumes is [`l2/SPEC.md`](../l2/SPEC.md) §2.
+This directory builds, validates, serves and scores the active T1/T2/T3 bank.
+The measurement rationale is in [DESIGN.md](DESIGN.md) and
+[APPROACH.md](APPROACH.md).
 
-Four stages, stdlib-only except where noted. Every stage is deterministic:
-same inputs → same bytes.
-
-| stage | what | output |
+| stage | command | output |
 | --- | --- | --- |
-| [generate](generate.py) | L2 cases → benchmark items for T1, T1-triage, T3, T4 | `bench/items.jsonl` |
-| [validate](validate.py) | schema + the invariants a schema cannot express | exit code |
-| [run](run.py) | serve items under protocol P1 or P2 | `bench/runs/<ts>/responses.jsonl` |
-| [score](score.py) | accuracy, Brier, ECE, reliability bins, case-blocked CIs | `bench/runs/<ts>/scores.json` |
+| generate | `python3 -B bench/generate.py` | `bench/items.jsonl`, `bench/exclusions.jsonl` |
+| validate | `uv run --with 'jsonschema==4.25.1' python -B bench/validate.py` | independent refusals/exit status |
+| plan/export | `python3 -B bench/run.py ...` | dry-run text or resumable request ledger |
+| score | `python3 -B bench/score.py --run <dir>` | `scores.json` |
 
-## Run it
+Generated item data is not a public-repository input. Recreate it from locked
+sources with `python3 scrape/bootstrap.py --all`.
 
-```bash
-python3 bench/generate.py --use-fixture                      # -> bench/items.jsonl
-uv run --with jsonschema python bench/validate.py --use-fixture
+## Tasks
 
-python3 bench/run.py --protocol P2 --limit 3                 # DRY RUN: prints prompts, no API call
-python3 bench/run.py --protocol P1 --k 5 --limit 3           # DRY RUN
+- **T1 — full-information clause verdict.** The prompt shows the clean
+  complaint and company response, then asks whether one specified Code clause
+  was breached.
+- **T2 — complaint-only clause verdict.** It asks the same question before the
+  response is shown. Exact T1/T2 counterparts share a relative pair order and
+  are analysed on the exact selected intersection.
+- **T3 — appeal survival.** The prompt shows the pre-appeal information set and
+  Panel ruling, then asks whether that ruling was upheld or overturned.
 
-uv run --with anthropic python bench/run.py --protocol P2 --limit 10 --live
-python3 bench/score.py --run bench/runs/<timestamp>
-```
-
-Drop `--use-fixture` once `data/l2/cases.jsonl` is real; `generate.py` defaults
-to it and falls back to the fixture with a loud banner if it is absent.
-
-## Scale up incrementally
-
-The project owner's policy, and the reason `--dry-run` is the default and
-`--limit` defaults to 10:
-
-1. **Dry-run first, and read the prompts.** Every leakage bug that survives the
-   attest shows up as text on screen. Nothing is written and nothing is spent.
-2. **Smoke-run 10 items** on the cheap default model. Read
-   `responses.jsonl` — not the score. Check the model answered the question
-   asked, that structured output parsed, and that no call hit `max_tokens`.
-3. **Score the smoke run.** Confirm coverage is 10/10 and the reliability bins
-   are populated. A run that scores 6 of 10 is a harness bug, not a result.
-4. **Only then increase** `--limit`, then `--k`, then the model. One axis at a
-   time, so a change in the numbers has one candidate cause.
-
-A P1 run costs `limit × k` calls. `--limit 100 --k 5` is 500 calls; check the
-arithmetic before pressing enter.
-
-## What an item is
-
-One line of `items.jsonl`, conforming to [`item_schema.json`](item_schema.json):
-an extract of quoted case text, a clause reference, the case metadata the model
-is allowed to see, and the adjudicated label. Four hard rules, enforced in
-`generate.py` and re-checked independently in `validate.py`:
-
-1. **Quoted text comes only from L2 segments whose `leakage_attest.clean` is
-   true and whose `kind` is `complaint` or `response`** (DESIGN §5). Nothing is
-   ever trimmed to rescue a dirty segment — the item is not generated. The
-   attest is *not* recomputed here (DESIGN §1.3: leakage is a data property);
-   the generator only checks that `clean` agrees with its own `checks` map.
-2. **`metadata_shown` is an allowlist**: respondent, complainant category /
-   anonymity / contactability, Code year, date received. Everything else is
-   withheld — including the procedure flags (`abridged` and `voluntary_admission`
-   imply the outcome, `outwith_scope` *is* the T4 label), the `subject` line
-   (L2 C4: the hero h2 routinely states the outcome), the case number, and
-   `dates.completed`.
-3. **T1 shows complaint + response; T1-triage shows complaint only.** A case
-   with no clean response segment yields a triage item and no T1 item, and says
-   so in the skip report.
-4. **Siblings share a split.** Cases are grouped by union-find over both shared
-   `source_files` and declared `sibling_cases`, and the split is a hash of the
-   group key (DESIGN §6).
-
-`tags` are analysis-side only and can encode outcome-bearing facts
-(`appeal_flip`, `abridged`). **`run.py` never renders them.**
+T2 was called `T1-triage` in historical runs. The legacy string remains
+readable for archive scoring but is not emitted by the active generator.
 
 ## Protocols
 
-| id | what the model returns | confidence |
-| --- | --- | --- |
-| P2 | answer + stated probability, via structured output | the stated probability |
-| P1 | answer only, over K perturbed presentations | frequency of the modal answer |
+| protocol | calls per item | confidence |
+| --- | ---: | --- |
+| P1 | 1 | model's stated probability that its answer is correct |
+| P2 | K (initially 7) | modal-answer frequency across byte-identical requests |
+| P3 | K (initially 7) | linear pool of repeated, oriented stated probabilities |
+| P4 | 0 new calls | threshold/risk–coverage analysis of completed P1/P2/P3 rows |
 
-`score.py` puts both on one axis: `p` = the model's confidence in the answer it
-gave, `o` = whether that answer matched the adjudicator. Brier is
-`mean((p-o)^2)`; ECE uses 10 equal-mass bins, with edges extended so items
-sharing a `p` never straddle a bin (P1's `p` only takes K+1 values).
-Confidence intervals resample **cases**, not items.
+The protocol namespace was reordered before fresh results began. Archived
+files are not renamed: legacy P2 means stated confidence, legacy P1 means
+repeated verdicts, and legacy P3 means the retired lottery experiment. Their
+run contract keeps those historical meanings distinct from current P1–P4.
 
-### Phase-1 perturbations for P1
+P2 fixes the canonical prompt and model configuration. Repeat number is ledger
+metadata only and never enters the request, so K=10 is a strict top-up of K=7.
+The initial condition may omit the temperature parameter; `--temperature X`
+sets one supported value on every request. A temperature change is a different
+run, not another repeat. Repeated identical answers are a valid result.
 
-- **rendition swap** — an alternate publisher-written telling of the same
-  complaint/response, where L2 supplies one (see the rendition finding below).
-- **block order** — the order of the CLAUSE / CASE DETAILS / EXTRACT blocks.
-  DESIGN §4.2 calls this "clause-presentation order"; with one clause under
-  test per item, block order is its faithful analogue. Orders that render
-  identically (T4 has no clause block) are collapsed, and the dry run reports
-  `distinct prompts: N of M calls` so a degenerate plan is visible.
-- **temperature** — **not available on current models.** `temperature`,
-  `top_p` and `top_k` are rejected outright by `claude-opus-5`,
-  `claude-sonnet-5`, `claude-fable-5` and `claude-opus-4-7/4-8`. `run.py` drops
-  the axis and says so; repeated variants become resamples, which still measure
-  decoding stochasticity but are not a temperature sweep. To sweep temperature,
-  pick a model that still accepts sampling parameters (`claude-sonnet-4-6`,
-  `claude-haiku-4-5`) and pass `--temperatures`.
+P2 uses K times the calls of P1 and also ensembles the verdict. It is a chosen
+system-level method, not a compute-matched causal comparison with P1.
 
-Defaults: `--model claude-sonnet-5` (cheap smoke runs — state the model in any
-writeup), `--thinking adaptive`, `--max-tokens 4096`. Thinking is a live
-confound for a calibration study; it is recorded in every run manifest.
+P3 has its own offline planner, `bench/p3_plan.py`. It repeats the exact P1
+answer-and-probability request, orients every probability to a fixed task label
+and takes an equal-weight linear pool. P3 also uses K calls per item and is a
+separate system-level method. Its evaluated K is exact; single-draw, dispersion
+and answer-vote summaries are secondary views of the same completed repeats.
 
-## The fixture
+## Deterministic cumulative order
 
-`fixtures/cases.fixture.jsonl` — four invented cases conforming exactly to
-`l2/SPEC.md` §2, covering a clean breach, a burden-of-proof no-breach with an
-anonymous non-contactable complainant, an appeal flip (one clause overturned,
-one upheld), and an outwith-scope ruling. Cases 1 and 2 are co-reported, so the
-sibling rule is exercised; case 2's response segment fails the attest, so the
-T1 skip path is exercised; case 3 carries a `pdf_flow` rendition.
+The runner assigns one stable, case-aware rank independently within each task:
 
-**All content is invented.** Case numbers are `TEST/xxxx/x/26`; the companies,
-products and text do not exist and no sentence is taken from a real report.
+1. one item per case is placed before a second item from that case;
+2. T1 and T2 share an outcome-blind case/pair ordering, so their common-pair
+   subsequences have the same relative order;
+3. T2-only cases and items remain interleaved in T2, so an exact counterpart
+   need not have the same absolute rank in T1 and T2;
+4. ordering is deterministic from the published seed and full item bank;
+5. task/split filters are applied after ranking.
 
-Because L2 segments carry offsets rather than text, the fixture ships
-`fixtures/l1_panes.fixture.json` — stand-in L1 pane text that the same slicing
-code path reads. Both files are generated:
+The core order is deliberately not recent-first: early prefixes are intended
+to spread across the corpus rather than estimate only the newest Code era.
+Completion/publication-year results remain available as explicit strata.
+
+`--through-items N` therefore means ranks 1..N **in every selected task**. For
+example, T1,T2 at N=20 plans up to 40 items, not 20 total. A split filter may
+return fewer because ranks remain absolute rather than being renumbered.
+
+N=1 is the configuration check. Later checkpoints (10, 20, 50, 100, 200, 300)
+extend the same prefix; they are not independent samples. A model completed
+through 250 and one completed through 200 can be compared on the exact first
+200 of a task, then on 250 after the second is topped up. T1-versus-T2 analysis
+uses the exact paired intersection present in both selected prefixes.
+
+## Safe offline planning
+
+Dry-run is the default and writes nothing:
 
 ```bash
-python3 bench/fixtures/build_fixture.py
+python3 -B bench/run.py --protocol P1 --tasks T1 --through-items 1
+python3 -B bench/run.py --protocol P2 --tasks T1 --through-items 1 \
+  --through-repeats 7
+python3 -B bench/p3_plan.py --tasks T1 --through-items 1 \
+  --through-repeats 7
 ```
 
-From the fixture: **15 items** — T1 4, T1-triage 5, T3 2, T4 4.
+The output includes the exact prompts, rank, call ID, request hash and call
+arithmetic. `--live` deliberately fails closed; this command cannot submit a
+provider request.
 
-## Deviations and open questions
+After the owner approves an exact provider/model/configuration/spend envelope,
+persist and export the missing canonical calls:
 
-Flagged for the owner. Each is a deliberate choice, cheap to reverse.
+```bash
+python3 -B bench/run.py \
+  --protocol P1 --model <exact-model-id> --tasks T1 --through-items 1 \
+  --run-dir bench/runs/<model>-p1 \
+  --export-batch /tmp/<model>-p1-n1.jsonl
+```
 
-1. **`extract_provenance` is an array, not a single object.** The brief sketched
-   one `{file, pane, char_start, char_end}`. A T1 extract quotes two disjoint
-   spans (complaint and response), which one object cannot describe without
-   claiming text between them that was not quoted. "Provenance to the
-   character" (DESIGN §1.2) requires the array. `validate.py` re-slices every
-   entry and reproduces `extract_text` byte for byte.
+The export format is provider-neutral JSONL: every row has a stable
+`custom_id`/`call_id` and canonical request object. It is not itself an
+Anthropic/OpenAI submission envelope. The provider-specific adapter is selected
+only once the approved model/provider is known.
 
-2. **T3 shows the Panel ruling in `metadata_shown`.** DESIGN §2 T3 makes the
-   Panel ruling an *input* to appeal-survival; DESIGN §5 says metadata excludes
-   all outcome fields. For T3 the Panel ruling is the premise of the question,
-   not its label (the label is the Appeal Board outcome) — without it the
-   question is ill-posed. `panel_ruling_for_clause` and `appellant` are
-   permitted on T3 and on no other task, enforced in both the schema and the
-   validator.
+## Import and resume
 
-3. **T3 quotes complaint + response, not the ruling and reasoning.** DESIGN §2
-   T3 wants the reasoning segment, but `panel_ruling` segments fail the attest
-   by construction, and the phase-1 leakage rule admits only `complaint` and
-   `response`. Lifting this needs L2 to emit an attest class for reasoning text
-   with the disposition removed — a spec change, not a harness change.
+Normalize downloaded provider results to one JSONL row per call:
 
-4. **Renditions are mostly unusable, which blunts P1's flagship perturbation.**
-   DESIGN §4.1 calls the three publisher-written renditions the corpus's unique
-   asset. But `renditions.*` in L2 is a bare ref with no attest of its own, and
-   the summary pane and report abstract both state the outcome — so neither can
-   be quoted. A rendition is usable here only when it *contains* clean
-   complaint/response segments, which in practice means `pdf_flow` on the 13
-   PDF cases. **Recommendation: L2 should express renditions as segment
-   indices, not bare refs**, so each carries its own attest.
+```json
+{"custom_id":"call-...","parsed":{"answer":"breach","probability":0.72},"response":{}}
+```
 
-5. **`splits` land 8 train / 7 dev / 0 test on the fixture.** Three sibling
-   groups and a 60/20/20 hash; not a bug, just too few groups. Era splits and
-   the post-cutoff holdout (DESIGN §6) are not implemented.
+For P2 omit `probability`. A failed row may instead carry `"error":"..."`.
+Importing never overwrites a completed receipt:
 
-6. **Not implemented in phase 1**: the memorisation probe (every item ships
-   `contamination.probe_status: "untested"`), redaction variants, protocols P3
-   and P4, and tasks T2 and T5–T7. `clause_ref.clause_text` is always null
-   until `data/code/` exists (DESIGN §7); affected items carry the tag
-   `no_clause_text`, and the prompt tells the model the clause text is
-   unavailable.
+```bash
+python3 -B bench/run.py \
+  --run-dir bench/runs/<model>-p1 \
+  --import-results /tmp/<model>-p1-results.jsonl
+```
+
+After every import or top-up, refresh every ordinary active run and the local
+site with one command:
+
+```bash
+python3 -B bench/refresh_active_results.py
+```
+
+This stages fresh scores for all IDs in `bench/active_results.json`, applies
+the exporter's completeness and provenance checks, then publishes the scores,
+exports site data, runs `svelte-check` and builds the static site. It refuses
+to export if any active run still has a pending, failed, duplicate, dropped or
+stale call, so a credit interruption leaves the last complete site intact;
+import the resumed receipts and run the same command again. During iterative
+local work, `--fast` performs the same score/export/check path while skipping
+only the production build. `cd site && npm run refresh` and
+`npm run refresh:fast` are equivalent shortcuts.
+
+To grow rank 1 to rank 20, reuse the exact run directory/configuration and
+export to a new file with `--through-items 20`. Completed call IDs are omitted;
+only missing/failed calls are exported. `--retry-ids <file>` can narrow that
+set after a credit or transport failure.
+
+The run manifest refuses a changed item-bank hash, model/protocol/config hash
+or request identity. Start a new run directory for any such change.
+
+## Scoring and P4
+
+```bash
+python3 -B bench/score.py --run bench/runs/<run>
+python3 -B bench/score.py --run bench/runs/<run> --through-items 200 \
+  --out bench/runs/<run>/scores-through-200.json
+python3 -B bench/score.py --run bench/runs/<p2-run> --through-repeats 3 \
+  --out bench/runs/<p2-run>/scores-k3.json
+```
+
+Scoring reports accuracy, Brier score, equal-mass ECE, AUROC, reliability bins
+and source-report-sibling-blocked intervals, plus an equal-primary-case
+sensitivity. P3 additionally reports its linear-pool primary view, repeated-call
+draws, single-draw estimand, within-item dispersion and secondary vote view.
+P4 adds the attainable confidence-threshold risk–coverage curve and AURC to
+every completed confidence signal without any API call. When T1 and T2 are both present, the scorer also
+reports their exact paired intersection, answer changes and paired metric
+deltas. P2/P3 items are included only when every repeat through the requested
+K parsed successfully; effective K is never silently reduced. Prefix views
+require a named `--out`, so they cannot overwrite the canonical `scores.json`.
+
+For T1-versus-T2 conclusions use the exact paired intersection. For model
+comparisons use the lowest common task rank and matching hashes/configuration,
+not a model-specific successful subset.
+
+## Fixture and offline tests
+
+The fixture contains four invented cases and no real report sentence:
+
+```bash
+python3 -B bench/fixtures/build_fixture.py
+python3 -B bench/generate.py --use-fixture \
+  --out /tmp/pmcpa-fixture-items.jsonl \
+  --exclusions /tmp/pmcpa-fixture-exclusions.jsonl
+uv run --with 'jsonschema==4.25.1' python -B bench/validate.py \
+  --use-fixture --items /tmp/pmcpa-fixture-items.jsonl \
+  --exclusions /tmp/pmcpa-fixture-exclusions.jsonl
+uv run --with 'jsonschema==4.25.1' python -B bench/test_fixture_selection.py
+python3 -B bench/test_run_foundation.py
+python3 -B bench/score.py --self-test
+python3 -B bench/probe.py --self-test --items /tmp/pmcpa-fixture-items.jsonl
+```
+
+It generates 11 items: T1 4, T2 5 and T3 2, without overwriting the real bank.
+The tests prove explicit fixture selection, relative pair ordering, per-task
+prefixes, byte-identical P2 top-ups, fail-closed live mode and
+export/import/retry idempotence.

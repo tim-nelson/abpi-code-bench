@@ -2,6 +2,9 @@
 
     uv run --with jsonschema python bench/validate.py
     uv run --with jsonschema python bench/validate.py --items bench/items.jsonl
+    uv run --with jsonschema python bench/validate.py --use-fixture \
+        --items /tmp/pmcpa-fixture-items.jsonl \
+        --exclusions /tmp/pmcpa-fixture-exclusions.jsonl
 
 Runs bench/item_schema.json, then the invariants a schema cannot express:
 
@@ -10,7 +13,7 @@ Runs bench/item_schema.json, then the invariants a schema cannot express:
     those slices reproduces extract_text character for character
   * every quoted ref belongs to a segment in the source cases whose
     leakage_attest.clean is true and whose kind is complaint or response
-  * T1 quotes complaint+response, T1-triage and T4 quote complaint only
+  * T1 quotes complaint+response, T2 quotes complaint only
   * metadata_shown is exactly the allowlist (plus the two T3-only keys, on T3)
   * cases sharing a source report share a split
   * a leakage TRIPWIRE over the quoted text: ruling/appeal/sanction vocabulary
@@ -18,9 +21,9 @@ Runs bench/item_schema.json, then the invariants a schema cannot express:
     attest and does not replace it -- a hit means either the attest is wrong or
     this word list is too broad, and a human decides which.
   * the bench/review/DEFECTS.md exclusions, re-derived from the CASES rather
-    than trusted from the generator: no item of a withdrawn task (T4, D1), none
-    from a multi_case_undeclared case (D4), none for a dual_ruling clause (D3),
-    and folded sibling numbers that really are siblings.
+    than trusted from the generator: no item from a multi_case_undeclared case
+    (D4), none for a dual_ruling clause (D3), and folded sibling numbers that
+    really are siblings.
 """
 
 import argparse
@@ -43,7 +46,7 @@ MAX_REPORT = 20
 
 TASK_KINDS = {
     "T1": ("complaint", "response"),
-    "T1-triage": ("complaint",),
+    "T2": ("complaint",),
     "T3": ("complaint", "response", "panel_ruling"),
 }
 
@@ -60,7 +63,7 @@ HARD_EXCLUSION_REASONS = {"dual_ruling", "multi_case_undeclared",
                           # R28 stage 1. Hard in the same sense, and its rows
                           # only ever name T3 -- an appeal-axis dual denies the
                           # panel->board transition, not the Panel's ruling, so
-                          # the clause's T1/T1-triage items are untouched and
+                          # the clause's T1/T2 items are untouched and
                           # the (case, task, clause) key is what makes the
                           # assertion below exact.
                           "dual_ruling_appeal_board"}
@@ -284,7 +287,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--items", default=str(DEFAULT_ITEMS))
     ap.add_argument("--cases", default=str(generate.DEFAULT_CASES))
-    ap.add_argument("--fixture", default=str(generate.FIXTURE_CASES))
+    ap.add_argument("--fixture", default=str(generate.FIXTURE_CASES),
+                    help="invented cases used only with --use-fixture")
     ap.add_argument("--panes", default=str(generate.FIXTURE_PANES))
     ap.add_argument("--l1", default=str(generate.L1_RECORDS))
     ap.add_argument("--pdf-records", default=str(generate.L1_PDF_RECORDS))
@@ -297,10 +301,19 @@ def main(argv=None):
     if not items:
         raise SystemExit(f"{args.items} is empty")
 
-    cases_path = pathlib.Path(args.cases)
-    using_fixture = args.use_fixture or not cases_path.exists()
+    using_fixture = args.use_fixture
     if using_fixture:
         cases_path = pathlib.Path(args.fixture)
+        if not cases_path.exists():
+            raise SystemExit(f"--use-fixture requested but fixture cases are absent: {cases_path}")
+    else:
+        cases_path = pathlib.Path(args.cases)
+        if not cases_path.exists():
+            raise SystemExit(
+                f"real L2 cases not found at {cases_path}; refusing to validate against the "
+                "invented fixture. Build/retrieve L2 first, or pass --use-fixture explicitly "
+                "for a fixture-only smoke validation."
+            )
     cases = load_jsonl(cases_path)
 
     wanted = {(s["ref"]["file"], s["ref"]["pane"]) for c in cases for s in c.get("segments", []) if "ref" in s}
@@ -337,7 +350,7 @@ def main(argv=None):
     # R28 stage 1, the appeal axis. Re-derived from the CASES the same way, and
     # scoped to T3 because that is the only task whose label is the transition:
     # the Board ruling a clause both ways says nothing about the Panel's own
-    # ruling, which is what T1/T1-triage are labelled with.
+    # ruling, which is what T1/T2 are labelled with.
     dual_board_rows = {(n, str(v.get("clause")))
                        for n, c in by_number.items() for v in (c.get("verdicts") or [])
                        if v.get("dual_ruling_appeal_board")}

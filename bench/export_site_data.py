@@ -1,6 +1,6 @@
 """Export site-ready JSON for the review website in `site/`.
 
-    python3 bench/export_site_data.py                 # default: 200-item sample
+    python3 bench/export_site_data.py                 # default: whole active bank
     python3 bench/export_site_data.py --n 400 --seed 7
 
 Writes into `site/` (override with --site). Small files the site always needs
@@ -8,12 +8,12 @@ go to `src/lib/data/` so they are imported at build time and prerendered; the
 heavy per-item payloads go to `static/data/` and are fetched on demand.
 
   src/lib/data/meta.json          bench-wide counts: tasks, labels, eras,
-                     splits, tags, audit-trail summary (from
-                     bench/review/DEFECTS.md), source hashes, headline runs
-  src/lib/data/items_index.json   one light row per sampled item (client-side
+                     splits, tags, publication scope, source hashes and
+                     headline runs
+  src/lib/data/items_index.json   one light row per published item (client-side
                      filtering; also the prerender entry list)
-  src/lib/data/runs.json          every bench/runs/* directory that has a
-                     scores.json: its manifest plus its full scores payload
+  src/lib/data/runs.json          scored runs explicitly activated in
+                     bench/active_results.json: manifest + scores payload
   src/lib/data/id_migrations.json bench/id_migrations.jsonl as a plain
                      old_id -> new_id map, for the browser: reviews are
                      captured under the item_id, and 261 of them were
@@ -22,13 +22,14 @@ heavy per-item payloads go to `static/data/` and are fetched on demand.
                      store through this map
   static/data/items/<id>.json     per item: the EXACT model-facing prompts
                      (built through bench/run.py's own request builder, so
-                     they are byte-identical to a live call), the full
+                     they are byte-identical to the canonical exported request), the full
                      untruncated extract, and — separately marked — the
                      withheld label with its receipts and the PMCPA case URL
 
 Nothing here is a new source of truth: labels come from bench/items.jsonl,
 receipts from data/l2/cases.jsonl, case URLs from data/manifest.jsonl, and
-prompts from bench/run.py. The sample is deterministic in --seed.
+prompts from bench/run.py. The default export contains the full active bank;
+an explicitly requested smaller review subset is deterministic in --seed.
 """
 
 import argparse
@@ -38,7 +39,6 @@ import importlib.util
 import json
 import pathlib
 import random
-import re
 import shutil
 import sys
 from types import SimpleNamespace
@@ -46,10 +46,14 @@ from types import SimpleNamespace
 BENCH = pathlib.Path(__file__).resolve().parent
 ROOT = BENCH.parent
 DEFAULT_SITE = ROOT / "site"
+ACTIVE_RESULTS_PATH = BENCH / "active_results.json"
+SCORING_INPUTS_SCHEMA = "pmcpa.score-inputs.v1"
+CURRENT_P3_PROTOCOL = "P3"
+LEGACY_REPEATED_STATED_CONDITION = "repeated_stated_probability"
+LINEAR_PROBABILITY_POOL = "linear_probability_pool"
 
-# Items carrying these tags are the ones the measurement story turns on
-# (APPROACH.md §3), so the sample guarantees a floor of each rather than
-# leaving them to chance.
+# An explicitly requested small review subset keeps a floor of each predefined
+# descriptive tag so the site remains useful for manual inspection.
 SPECIAL_TAGS = [
     "appeal_flip",
     "appeal_survived",
@@ -62,6 +66,35 @@ SPECIAL_TAGS = [
     "pdf_substituted",
 ]
 TAG_FLOOR = 6
+
+
+def manifest_method_field(manifest, field):
+    """Read one method discriminator from its durable manifest/config binding."""
+    value = manifest.get(field)
+    if value is None:
+        value = (manifest.get("config") or {}).get(field)
+    return value
+
+
+def is_repeated_stated(value):
+    """Whether a record is current P3, including its immutable legacy source."""
+    return (value.get("protocol") == CURRENT_P3_PROTOCOL
+            or (value.get("protocol") == "P1"
+                and manifest_method_field(value, "protocol_condition")
+                == LEGACY_REPEATED_STATED_CONDITION))
+
+
+def public_protocol(value):
+    """Current public method id without rewriting paid source provenance."""
+    return CURRENT_P3_PROTOCOL if is_repeated_stated(value) else value.get("protocol")
+
+
+def site_method_key(value):
+    """Identity that must never be collapsed in summaries or boards."""
+    if is_repeated_stated(value):
+        return (CURRENT_P3_PROTOCOL, None, manifest_method_field(value, "aggregation"),
+                int(value.get("k") or 0))
+    return (public_protocol(value), None, None, None)
 
 
 def load_run_module():
@@ -88,12 +121,176 @@ def sha256_of(path, limit=None):
     return h.hexdigest()
 
 
+def local_file_binding(path):
+    """The score.py provenance shape for one current local file."""
+    path = pathlib.Path(path)
+    if not path.exists():
+        return {"present": False, "sha256": None, "bytes": None,
+                "basename": path.name}
+    return {"present": True, "sha256": sha256_of(path),
+            "bytes": path.stat().st_size, "basename": path.name}
+
+
+def canonical_sha256(value):
+    payload = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _rename_selective_prediction_to_p4(value):
+    """Rename only old selective-prediction `p3` blocks in exported copies.
+
+    Current P3 owns the top-level repeated stated-confidence diagnostics, so a
+    blanket key rename would be wrong.  The retired key is unambiguous by its
+    risk–coverage payload (`aurc` + `curve`).
+    """
+    if isinstance(value, list):
+        return [_rename_selective_prediction_to_p4(row) for row in value]
+    if not isinstance(value, dict):
+        return value
+    out = {}
+    for key, child in value.items():
+        normalized = _rename_selective_prediction_to_p4(child)
+        target = ("p4" if key == "p3" and isinstance(child, dict)
+                  and "aurc" in child and "curve" in child else key)
+        if target in out and out[target] != normalized:
+            raise ValueError(f"conflicting {target} score blocks during site normalization")
+        out[target] = normalized
+    return out
+
+
+def public_scores(scores, manifest):
+    """Site copy using current P1/P2/P3/P4 names.
+
+    The immutable paid P3 source was originally catalogued as a P1 repeated
+    condition and scored under a `p1r` diagnostics key.  That evidence remains
+    unchanged on disk; only this publication copy resolves it to current P3.
+    """
+    out = _rename_selective_prediction_to_p4(scores)
+    if is_repeated_stated(manifest):
+        legacy = out.pop("p1r", None)
+        if legacy is not None:
+            if "p3" in out and out["p3"] != legacy:
+                raise ValueError("conflicting current P3 and legacy p1r diagnostics")
+            out["p3"] = legacy
+        out["protocol"] = CURRENT_P3_PROTOCOL
+        out["protocol_condition"] = None
+        out["aggregation"] = LINEAR_PROBABILITY_POOL
+    return out
+
+
+def local_request_config_binding(manifest_path, requests_path):
+    """Reconstruct score.py's inspectable semantic request-config binding."""
+    manifest_path = pathlib.Path(manifest_path)
+    requests_path = pathlib.Path(requests_path)
+    manifest = (json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.exists() else {})
+    requests = list(read_jsonl(requests_path)) if requests_path.exists() else []
+    payload = {
+        "manifest_config": manifest.get("config"),
+        "manifest_config_hash": manifest.get("config_hash"),
+        "request_config_hashes": sorted({
+            row["config_hash"] for row in requests
+            if isinstance(row.get("config_hash"), str)
+        }),
+    }
+    return {"sha256": canonical_sha256(payload), **payload}
+
+
+def verify_scoring_input_bindings(run_id, run_dir, scores, current_items_path):
+    """Fail closed if a modern score no longer binds its exact input bytes."""
+    recorded = scores.get("scoring_inputs")
+    if not isinstance(recorded, dict):
+        sys.exit(f"active result {run_id!r} has no scoring_inputs provenance")
+    if recorded.get("schema_version") != SCORING_INPUTS_SCHEMA:
+        sys.exit(
+            f"active result {run_id!r} has unsupported scoring_inputs schema "
+            f"{recorded.get('schema_version')!r}")
+
+    actual_paths = {
+        "items": pathlib.Path(current_items_path),
+        "manifest": run_dir / "manifest.json",
+        "requests": run_dir / "requests.jsonl",
+        "responses": run_dir / "responses.jsonl",
+        "ledger": run_dir / "ledger.jsonl",
+    }
+    defects = []
+    for role, path in actual_paths.items():
+        expected = recorded.get(role)
+        if not isinstance(expected, dict):
+            defects.append(f"{role}=missing binding")
+            continue
+        actual = local_file_binding(path)
+        # Exact dict equality also checks explicit absence, byte length and the
+        # fixed role's basename; no silently ignored provenance fields exist.
+        if expected != actual:
+            defects.append(
+                f"{role} binding mismatch "
+                f"(recorded present/sha/bytes={expected.get('present')}/"
+                f"{expected.get('sha256')}/{expected.get('bytes')}, current="
+                f"{actual.get('present')}/{actual.get('sha256')}/{actual.get('bytes')})")
+    expected_config = recorded.get("request_config")
+    actual_config = local_request_config_binding(
+        actual_paths["manifest"], actual_paths["requests"])
+    if not isinstance(expected_config, dict):
+        defects.append("request_config=missing binding")
+    elif expected_config != actual_config:
+        defects.append(
+            "request_config binding mismatch "
+            f"(recorded sha={expected_config.get('sha256')}, "
+            f"current={actual_config.get('sha256')})")
+    if defects:
+        sys.exit(f"active result {run_id!r} has stale scoring provenance: "
+                 + "; ".join(defects))
+
+
 def read_jsonl(path):
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if line:
                 yield json.loads(line)
+
+
+def load_active_results(path=ACTIVE_RESULTS_PATH):
+    """Load the single publication registry for model results.
+
+    `bench/runs/` is the append-only archive. A run appears in site exports only
+    after its id is added here; an empty registry therefore means a genuinely
+    empty active results surface without deleting or moving archive evidence.
+    """
+    empty = {
+        "active_run_ids": [],
+        "leaderboard_boards": [],
+        "leaderboard_excluded": [],
+    }
+    if not path.exists():
+        return empty
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for key in empty:
+        if key not in data:
+            data[key] = []
+        if not isinstance(data[key], list):
+            sys.exit(f"{path}: {key} must be a JSON list")
+
+    run_ids = data["active_run_ids"]
+    if any(not isinstance(run_id, str) or not run_id for run_id in run_ids):
+        sys.exit(f"{path}: active_run_ids must contain non-empty strings")
+    if len(run_ids) != len(set(run_ids)):
+        sys.exit(f"{path}: active_run_ids contains a duplicate")
+
+    declared = set(run_ids)
+    referenced = set()
+    for board in data["leaderboard_boards"]:
+        for entry in board.get("entries", []):
+            referenced.update(source[0] for source in entry.get("sources", []))
+    for row in data["leaderboard_excluded"]:
+        referenced.update(row.get("runs", []))
+    unknown = sorted(referenced - declared)
+    if unknown:
+        sys.exit(f"{path}: leaderboard references run(s) not activated: {unknown}")
+    return data
 
 
 def case_urls():
@@ -138,7 +335,10 @@ def receipts_for(item, verd):
         "flipped_on_appeal": v.get("flipped_on_appeal"),
         "dual_ruling": v.get("dual_ruling"),
         "occurrence": v.get("occurrence"),
-        "note": v.get("note"),
+        # L2 notes are audit receipts, not task identifiers. Keep their substance
+        # while presenting the current public task name after the T1-triage -> T2
+        # rename; the archival L2 source remains untouched.
+        "note": (v.get("note") or "").replace("T1-triage", "T2") or None,
         "signals": {
             "breach_listed": bool(s.get("info_breach_clauses") or s.get("meta_clause_breach") or s.get("chip_breach")),
             "no_breach_listed": bool(s.get("info_no_breach_clauses") or s.get("meta_clause_no_breach") or s.get("chip_no_breach")),
@@ -157,7 +357,9 @@ def era_of(item):
 
 def stratified_sample(items, n, seed):
     """Deterministic sample spread over (task, label, code_year), with a floor
-    on the item classes whose appropriate confidence is known in advance."""
+    on predefined descriptive review tags."""
+    if n >= len(items):
+        return list(items)
     rng = random.Random(seed)
     by_id = {it["item_id"]: it for it in items}
 
@@ -215,7 +417,7 @@ def build_prompts(run_mod, item):
     ns = SimpleNamespace(model="claude-sonnet-5", max_tokens=4096,
                          thinking="adaptive", effort=None, seed=11)
     out = {}
-    for protocol in ("P2", "P1"):
+    for protocol in ("P1", "P2"):
         variant = run_mod.plan_variants(item, protocol, 1, ns.seed, [])[0]
         params = run_mod.request_params(item, protocol, variant, ns)
         out[protocol] = {
@@ -228,58 +430,188 @@ def build_prompts(run_mod, item):
     return out
 
 
-def audit_summary():
-    """A pointer-level summary of the defect register — the site links out to
-    the file itself rather than restating it."""
-    path = BENCH / "review" / "DEFECTS.md"
-    if not path.exists():
-        return {"available": False}
-    text = path.read_text(encoding="utf-8")
-    entries = []
-    for m in re.finditer(r"^### ((?:D|R)\d+)\s*[—-]\s*(.+)$", text, re.M):
-        title = m.group(2).strip()
-        status = "fixed" if re.search(r"\bFIXED\b", title) else (
-            "removed" if re.search(r"\bREMOVE\b", title, re.I) else "open")
-        entries.append({"id": m.group(1), "title": title, "status": status})
-    good = re.findall(r"^- (.+)$", text.split("## What is verified GOOD")[1].split("## Defects")[0], re.M) \
-        if "## What is verified GOOD" in text else []
-    return {
-        "available": True,
-        "file": "bench/review/DEFECTS.md",
-        "headline": text.split("\n\n")[1].strip() if "\n\n" in text else "",
-        "entries": entries,
-        "verified_good": [re.sub(r"\s+", " ", g).strip() for g in good],
-        "companion_docs": [
-            {"file": "bench/APPROACH.md", "what": "measurement story: what a confidence is and how it is scored"},
-            {"file": "bench/DESIGN.md", "what": "what the items are and how they are built"},
-            {"file": "bench/review/SAMPLES.md", "what": "human review sample with labels + receipts"},
-            {"file": "bench/review/PROMPTS.md", "what": "exact model-facing prompts, rendered by run.py"},
-        ],
-    }
+def require_complete_active_run(run_id, run_dir, current_items_path=None):
+    """Fail closed unless ``scores.json`` covers the whole current call catalog.
+
+    Historical/partial runs may stay in ``bench/runs`` indefinitely, but the
+    active registry is publication state. A stale prefix score or a run with
+    pending, duplicate or unscoreable calls must never become an apparently
+    complete active result.
+    """
+    manifest_path = run_dir / "manifest.json"
+    scores_path = run_dir / "scores.json"
+    requests_path = run_dir / "requests.jsonl"
+    for path in (manifest_path, scores_path, requests_path):
+        if not path.exists():
+            sys.exit(f"active result {run_id!r} is missing {path.name}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scores = json.loads(scores_path.read_text(encoding="utf-8"))
+    coverage = scores.get("coverage") or {}
+    if coverage.get("mode") != "planned_ledger":
+        sys.exit(f"active result {run_id!r} is not a fresh planned-ledger run")
+    verify_scoring_input_bindings(
+        run_id, run_dir, scores, current_items_path or (BENCH / "items.jsonl"))
+
+    request_count = sum(1 for _ in read_jsonl(requests_path))
+    planned = coverage.get("planned")
+    expected_calls = manifest.get("n_calls_planned")
+    expected_items = manifest.get("n_items_planned")
+    defects = []
+    if scores.get("protocol_namespace") != "active":
+        defects.append(
+            f"protocol_namespace={scores.get('protocol_namespace')} (want active)")
+    if planned != request_count or planned != expected_calls:
+        defects.append(
+            f"score planned={planned}, catalog={request_count}, manifest={expected_calls}")
+    for key in ("parsed", "receipted", "parsed_receipts"):
+        if coverage.get(key) != planned:
+            defects.append(f"{key}={coverage.get(key)} (want {planned})")
+    for key in ("pending", "errors", "calls_with_duplicate_parsed_receipts",
+                "orphan_receipt_call_ids", "unlinked_response_rows",
+                "unlinked_ledger_rows", "calls_outside_horizon",
+                "receipt_calls_outside_horizon"):
+        if coverage.get(key, 0) != 0:
+            defects.append(f"{key}={coverage.get(key)}")
+    if (coverage.get("items_planned") != expected_items
+            or coverage.get("items_scored") != expected_items):
+        defects.append(
+            f"items scored/planned/manifest={coverage.get('items_scored')}/"
+            f"{coverage.get('items_planned')}/{expected_items}")
+    if scores.get("dropped"):
+        defects.append(f"dropped={len(scores['dropped'])}")
+    if public_protocol(manifest) not in {"P1", "P2", CURRENT_P3_PROTOCOL}:
+        defects.append(
+            f"active provider-run protocol={public_protocol(manifest)!r}; "
+            "P4 is derived offline and is not an activatable call run")
+    if scores.get("protocol") != manifest.get("protocol"):
+        # The immutable paid precursor is resolved by score.py to active P3
+        # while retaining its P1 source identity in protocol_provenance.
+        if not (is_repeated_stated(manifest)
+                and scores.get("protocol") == CURRENT_P3_PROTOCOL):
+            defects.append(
+                f"score/manifest protocol={scores.get('protocol')!r}/"
+                f"{manifest.get('protocol')!r}")
+    protocol_condition = manifest_method_field(manifest, "protocol_condition")
+    aggregation = manifest_method_field(manifest, "aggregation")
+    if protocol_condition not in (None, LEGACY_REPEATED_STATED_CONDITION):
+        defects.append(f"unknown protocol_condition={protocol_condition!r}")
+    if (protocol_condition == LEGACY_REPEATED_STATED_CONDITION
+            and manifest.get("protocol") != "P1"):
+        defects.append(
+            "legacy repeated-stated condition is valid only on immutable P1 provenance")
+    expected_score_condition = None if is_repeated_stated(manifest) else protocol_condition
+    if scores.get("protocol_condition") != expected_score_condition:
+        defects.append(
+            f"score/manifest protocol_condition={scores.get('protocol_condition')!r}/"
+            f"{protocol_condition!r} (resolved want {expected_score_condition!r})")
+    if scores.get("aggregation") != aggregation:
+        defects.append(
+            f"score/manifest aggregation={scores.get('aggregation')!r}/{aggregation!r}")
+    protocol_provenance = scores.get("protocol_provenance") or {}
+    if protocol_provenance.get("schema_version") != "pmcpa.protocol-resolution.v1":
+        defects.append("protocol_provenance schema is missing or unsupported")
+    if protocol_provenance.get("active_protocol") != public_protocol(manifest):
+        defects.append(
+            f"protocol_provenance active_protocol="
+            f"{protocol_provenance.get('active_protocol')!r} "
+            f"(want {public_protocol(manifest)!r})")
+    if protocol_provenance.get("source_protocol") != manifest.get("protocol"):
+        defects.append("protocol_provenance source_protocol disagrees with manifest")
+    if protocol_provenance.get("source_protocol_condition") != protocol_condition:
+        defects.append(
+            "protocol_provenance source_protocol_condition disagrees with manifest")
+    if protocol_provenance.get("storage_identity_preserved") is not True:
+        defects.append("protocol_provenance does not attest storage identity preservation")
+    alias_summary = protocol_provenance.get("receipt_aliases") or {}
+    if alias_summary.get("schema_version") != "pmcpa.receipt-alias.v1":
+        defects.append("protocol_provenance receipt-alias summary is missing or unsupported")
+    n_alias = alias_summary.get("n_alias_calls")
+    n_native = alias_summary.get("n_native_calls")
+    if (not isinstance(n_alias, int) or isinstance(n_alias, bool) or n_alias < 0
+            or not isinstance(n_native, int) or isinstance(n_native, bool)
+            or n_native < 0):
+        defects.append("receipt-alias call counts are invalid")
+    else:
+        if n_alias + n_native != coverage.get("parsed"):
+            defects.append(
+                f"receipt alias/native counts={n_alias}+{n_native} "
+                f"(want parsed={coverage.get('parsed')})")
+        if coverage.get("receipt_aliases") != n_alias:
+            defects.append(
+                f"coverage receipt_aliases={coverage.get('receipt_aliases')} "
+                f"(want {n_alias})")
+        if coverage.get("native_receipts") != n_native:
+            defects.append(
+                f"coverage native_receipts={coverage.get('native_receipts')} "
+                f"(want {n_native})")
+        source_runs = alias_summary.get("source_runs") or []
+        registry = alias_summary.get("registry")
+        if n_alias:
+            if manifest.get("protocol") != CURRENT_P3_PROTOCOL:
+                defects.append("receipt aliases are valid only in a native P3 target run")
+            if (not isinstance(registry, dict)
+                    or registry.get("n_rows") != n_alias
+                    or not registry.get("sha256")):
+                defects.append("receipt-alias registry summary does not bind every alias")
+            if (not isinstance(source_runs, list) or not source_runs
+                    or not all(isinstance(row, dict) for row in source_runs)
+                    or sum(row.get("n_calls", 0) for row in source_runs) != n_alias):
+                defects.append("receipt-alias source-run counts do not sum to alias count")
+        elif registry is not None or source_runs:
+            defects.append("zero-alias summary unexpectedly names a registry/source run")
+    repeated_stated = is_repeated_stated(manifest)
+    if repeated_stated and aggregation != LINEAR_PROBABILITY_POOL:
+        defects.append(
+            f"P3 repeated stated-confidence aggregation={aggregation!r} "
+            f"(want {LINEAR_PROBABILITY_POOL!r})")
+    if (manifest.get("protocol") == "P2" or repeated_stated) and (
+            scores.get("k") != manifest.get("through_repeats")):
+        defects.append(
+            f"score K={scores.get('k')} but manifest K={manifest.get('through_repeats')}")
+    current_runner_hash = sha256_of(BENCH / "run.py")
+    recorded_runner_hash = (manifest.get("config") or {}).get("runner_sha256")
+    if recorded_runner_hash != current_runner_hash:
+        defects.append(
+            f"runner_sha256={recorded_runner_hash} (current {current_runner_hash})")
+    if defects:
+        sys.exit(f"active result {run_id!r} is incomplete or stale: " + "; ".join(defects))
+    return scores, manifest
 
 
-def collect_runs():
+def collect_runs(active_run_ids, current_items_path=None):
+    """Site-ready scores for explicitly activated archive runs only."""
     runs = []
     runs_dir = BENCH / "runs"
-    if not runs_dir.exists():
+    if not active_run_ids:
         return runs
-    for d in sorted(p for p in runs_dir.iterdir() if p.is_dir()):
-        scores_path, manifest_path = d / "scores.json", d / "manifest.json"
-        if not scores_path.exists():
-            continue
-        scores = json.loads(scores_path.read_text(encoding="utf-8"))
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    for run_id in sorted(active_run_ids):
+        d = runs_dir / run_id
+        if not d.is_dir():
+            sys.exit(f"active result {run_id!r} has no archive directory at {d}")
+        source_scores, manifest = require_complete_active_run(
+            run_id, d, current_items_path or (BENCH / "items.jsonl"))
+        scores = public_scores(source_scores, manifest)
         # Absolute local paths are not site data.
         manifest.pop("items_path", None)
         scores.pop("run", None)
+        score_items = scores.pop("items", None)
+        source_protocol = manifest.get("protocol")
+        source_condition = manifest_method_field(manifest, "protocol_condition")
+        protocol = public_protocol(manifest)
+        protocol_condition = None if is_repeated_stated(manifest) else source_condition
+        aggregation = manifest_method_field(manifest, "aggregation")
         runs.append({
             "run_id": d.name,
             "dir": f"bench/runs/{d.name}",
             "created_utc": manifest.get("created_utc"),
             "model": scores.get("model") or manifest.get("model"),
-            "protocol": scores.get("protocol") or manifest.get("protocol"),
+            "protocol": protocol,
+            "protocol_condition": protocol_condition,
+            "aggregation": aggregation,
+            "source_protocol": source_protocol,
+            "source_protocol_condition": source_condition,
             "k": scores.get("k") or manifest.get("k"),
-            "items": scores.get("items"),
+            "items": pathlib.Path(score_items).name if score_items else None,
             "manifest": manifest,
             "scores": scores,
         })
@@ -384,7 +716,7 @@ def run_items(run_name):
 #   metadata_shown (every key)                     -> metadata_block, plus
 #       panel_ruling_for_clause and appellant, which T3's question_body renders
 #   extract_text                                   -> extract_block (rendition 0)
-#   renditions[*].extract_text                     -> extract_block under P1
+#   renditions[*].extract_text                     -> historical legacy-P1 prompt variants
 #   task                                           -> system base, question,
 #                                                     answer_line, schema
 # Item id, label, split, tags and provenance are deliberately absent: none of
@@ -487,14 +819,15 @@ def group_input_change(item, witness, old_id, created_utc):
     return bool(reasons), reasons
 
 
-def model_outputs_for(sample_ids, migrations, items_by_id, score_mod):
-    """Every archived, parsed model answer for the sampled items.
+def model_outputs_for(sample_ids, migrations, items_by_id, score_mod, active_run_ids,
+                      current_items_sha256, current_items_path=None):
+    """Every active, parsed model answer for the selected published items.
 
-    Reads raw responses.jsonl (the archive), not scores.json, so partial runs
-    contribute their surviving calls too — an individual archived output is
-    honest even when the run's aggregate is selection-biased and unrankable.
-    P3 choice-stage calls carry no verdict, so only calls with a parsed
-    `answer` are shipped; the stated probability exists only under P2.
+    Reads raw responses.jsonl from explicitly activated archive runs after
+    :func:`require_complete_active_run` proves the canonical score covers the
+    whole current call catalog.
+    Only calls with a parsed `answer` are shipped; a stated probability exists
+    under P1 and each P3 draw.
 
     Renamed ids follow their item: 32 answers on 14 renamed ids, which would
     otherwise vanish from those items' pages while the answers sit in the
@@ -503,27 +836,27 @@ def model_outputs_for(sample_ids, migrations, items_by_id, score_mod):
     WHOLE bank (main() does; a subset would make `unresolved` mean "unsampled").
 
     Also returns one GROUP per (run, item). A group is the unit the drawer
-    renders and the unit a prompt-condition caveat is true of; under P1 it is
-    also the unit of measurement — the K verdict-only calls whose modal-answer
-    frequency IS the confidence, so the site must never see K look-alike rows
-    with no number on them (bench/APPROACH.md §2). The group's confidence comes
-    from score.py's own aggregate(), not from a second implementation here.
+    renders and the unit a prompt-condition caveat is true of. Under P2 and P3
+    it is also the unit of measurement: respectively the K-call modal-answer
+    frequency and K-draw stated-confidence linear pool. The group's confidence
+    comes from score.py's own aggregate(), not from a second implementation.
     """
     outputs, groups = {}, collections.defaultdict(list)
     seen, mapped, unresolved = set(), set(), collections.Counter()
     runs_dir = BENCH / "runs"
-    for d in sorted(p for p in runs_dir.iterdir() if p.is_dir()):
-        if d.name.startswith("probe-"):
-            continue
+    for run_id in sorted(active_run_ids):
+        d = runs_dir / run_id
+        if not d.is_dir():
+            sys.exit(f"active result {run_id!r} has no archive directory at {d}")
+        _, manifest = require_complete_active_run(
+            run_id, d, current_items_path or (BENCH / "items.jsonl"))
         resp_path = d / "responses.jsonl"
-        manifest_path = d / "manifest.json"
         if not resp_path.exists():
-            continue
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+            sys.exit(f"active result {run_id!r} has no responses.jsonl")
+        request_by_call = {
+            row["call_id"]: row for row in read_jsonl(d / "requests.jsonl")
+        }
         witness = run_items(d.name)
-        # The archive is append-only, and one anomaly dir (20260802T181912Z,
-        # documented in runs/README.md) contains a corrupt line — tolerate and
-        # say so rather than either crashing or silently skipping.
         records = []
         with resp_path.open(encoding="utf-8") as fh:
             for lineno, line in enumerate(fh, 1):
@@ -531,10 +864,31 @@ def model_outputs_for(sample_ids, migrations, items_by_id, score_mod):
                 if not line:
                     continue
                 try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    print(f"  skipping corrupt line {lineno} in {d.name}/responses.jsonl "
-                          "(archived anomaly; see bench/runs/README.md)")
+                    receipt = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    sys.exit(f"active result {run_id!r} has corrupt responses.jsonl "
+                             f"line {lineno}: {exc}")
+                call_id = receipt.get("call_id")
+                request = request_by_call.get(call_id)
+                if request is None:
+                    sys.exit(
+                        f"active result {run_id!r} response line {lineno} has no "
+                        f"catalogued request for call_id={call_id!r}"
+                    )
+                # Provider receipts deliberately do not duplicate the full
+                # canonical request. Reattach its identity fields before asking
+                # score.py to verify a P2 group is truly K byte-identical calls.
+                # Parsed output and provider metadata remain receipt-owned.
+                joined = {**receipt}
+                for key in (
+                    "call_id", "item_id", "task", "protocol", "task_rank",
+                    "item_rank", "repeat_index", "config_hash", "request_sha256",
+                    "prompt_sha256", "protocol_condition", "aggregation",
+                    "request", "variant",
+                ):
+                    joined[key] = request.get(key)
+                records.append(joined)
+        exact_current_bank = manifest.get("items_sha256") == current_items_sha256
         per_item = collections.defaultdict(list)
         for rec in records:
             parsed = rec.get("parsed")
@@ -551,11 +905,26 @@ def model_outputs_for(sample_ids, migrations, items_by_id, score_mod):
             if item_id != old_id:
                 mapped.add(old_id)
             variant = rec.get("variant") or {}
+            source_method = {
+                "protocol": rec.get("protocol") or manifest.get("protocol"),
+                "protocol_condition": (rec.get("protocol_condition")
+                                       if "protocol_condition" in rec
+                                       else manifest_method_field(
+                                           manifest, "protocol_condition")),
+                "aggregation": (rec.get("aggregation")
+                                or manifest_method_field(manifest, "aggregation")),
+            }
+            current_protocol = public_protocol(source_method)
             per_item[item_id].append((old_id, rec, {
                 "run_id": d.name,
                 "created_utc": manifest.get("created_utc"),
                 "model": manifest.get("model"),
-                "protocol": rec.get("protocol") or manifest.get("protocol"),
+                "protocol": current_protocol,
+                "protocol_condition": None,
+                "aggregation": source_method["aggregation"],
+                "source_protocol": source_method["protocol"],
+                "source_protocol_condition": source_method["protocol_condition"],
+                "repeat_index": rec.get("repeat_index"),
                 "thinking": manifest.get("thinking"),
                 "rationale_mode": bool(manifest.get("rationale")),
                 "variant": {k: variant.get(k) for k in ("rendition", "block_order", "temperature", "stage")
@@ -567,58 +936,105 @@ def model_outputs_for(sample_ids, migrations, items_by_id, score_mod):
         for item_id, rows in sorted(per_item.items()):
             old_ids = {old for old, _, _ in rows}
             protocols = {call["protocol"] for _, _, call in rows}
-            if len(old_ids) > 1 or len(protocols) > 1:
+            protocol_conditions = {call.get("protocol_condition")
+                                   for _, _, call in rows}
+            aggregations = {call.get("aggregation") for _, _, call in rows}
+            source_protocols = {call.get("source_protocol") for _, _, call in rows}
+            source_conditions = {call.get("source_protocol_condition")
+                                 for _, _, call in rows}
+            if (len(old_ids) > 1 or len(protocols) > 1
+                    or len(protocol_conditions) > 1 or len(aggregations) > 1
+                    or len(source_protocols) > 1 or len(source_conditions) > 1):
                 # One run serves one id per item and one protocol per call; if
                 # that ever stops being true the group's k and modal frequency
                 # would be computed over two different questions.
-                sys.exit(f"{d.name}: item {item_id} has calls under {sorted(old_ids)} "
-                         f"and protocols {sorted(str(p) for p in protocols)}. A (run, item) "
+                sys.exit(f"{d.name}: item {item_id} has calls under {sorted(old_ids)}, "
+                         f"protocols {sorted(str(p) for p in protocols)}, conditions "
+                         f"{sorted(str(p) for p in protocol_conditions)} and aggregations "
+                         f"{sorted(str(p) for p in aggregations)}; source protocols "
+                         f"{sorted(str(p) for p in source_protocols)} and conditions "
+                         f"{sorted(str(p) for p in source_conditions)}. A (run, item) "
                          "group must be one id under one protocol. Refusing.")
-            changed, reasons = group_input_change(
-                items_by_id[item_id], witness, rows[0][0], manifest.get("created_utc"))
+            if exact_current_bank:
+                changed, reasons = False, []
+            else:
+                changed, reasons = group_input_change(
+                    items_by_id[item_id], witness, rows[0][0], manifest.get("created_utc"))
             group = {
                 "run_id": d.name,
                 "created_utc": manifest.get("created_utc"),
                 "model": manifest.get("model"),
                 "protocol": rows[0][2]["protocol"],
+                "protocol_condition": rows[0][2].get("protocol_condition"),
+                "aggregation": rows[0][2].get("aggregation"),
+                "source_protocol": rows[0][2].get("source_protocol"),
+                "source_protocol_condition": rows[0][2].get(
+                    "source_protocol_condition"),
                 "k": manifest.get("k"),
                 "n": len(rows),
                 "inputs_changed": changed,
                 "inputs_reasons": reasons,
-                "_calls": [call for _, _, call in rows],
+                "_calls": [call for _, _, call in sorted(
+                    rows, key=lambda value: int(value[1].get("repeat_index") or 1))],
             }
-            if group["protocol"] == "P1":
-                # score.py owns the measurement: aggregate() under P1 tallies
-                # the parsed answers, takes the modal one (alphabetical
-                # tie-break, flagged) and sets p = top/len(parsed). Calling it
-                # per (run, item) gives exactly the row score.py would write for
-                # a run of this one item. The tally itself is not returned by
-                # aggregate, so the distribution — the receipt the drawer prints
-                # beside the frequency — is counted here from the same parsed
-                # answers, and asserted against score.py's p below.
+            try:
+                semantics = score_mod.protocol_semantics(
+                    group["source_protocol"], manifest.get("contract"),
+                    group["source_protocol_condition"])
+            except ValueError as exc:
+                raise SystemExit(f"{d.name}: {exc}") from exc
+            if semantics in score_mod.REPEATED_SEMANTICS:
+                # score.py owns both K-call measurements. P2 returns a modal
+                # answer frequency; repeated P1 returns the equal-weight pool
+                # of probabilities after orienting every draw to one label.
+                # Calling aggregate per (run,item) keeps the drawer identical
+                # to the canonical score rather than reimplementing either.
                 recs = [{**rec, "item_id": item_id} for _, rec, _ in rows]
-                scored, dropped = score_mod.aggregate(recs, items_by_id, "P1")
+                expected_repeats = (manifest.get("through_repeats")
+                                    or manifest.get("k"))
+                # Fresh repeated runs are all-or-nothing at K. Passing the
+                # manifest horizon makes the exporter refuse a partial group.
+                scored, dropped = score_mod.aggregate(
+                    recs, items_by_id, group["source_protocol"],
+                    expected_repeats=expected_repeats,
+                    run_contract=manifest.get("contract"),
+                    protocol_condition=group["source_protocol_condition"],
+                    aggregation=group["aggregation"])
                 if dropped or len(scored) != 1:
-                    sys.exit(f"{d.name}: score.py could not aggregate the P1 calls for "
+                    sys.exit(f"{d.name}: score.py could not aggregate the repeated calls for "
                              f"{item_id} ({dropped or len(scored)}). Refusing.")
                 row = scored[0]
                 dist = collections.Counter(call["answer"] for _, _, call in rows)
-                top = dist[row["answer"]]
-                if abs(row["p"] - top / row["n_parsed"]) > 1e-12:
-                    sys.exit(f"{d.name}: the modal frequency for {item_id} disagrees with "
-                             f"score.py ({top}/{row['n_parsed']} vs {row['p']}). Refusing.")
-                # Modal answer first, then the rest by count and name. The row
-                # prints the modal term as its chip and the tail after it, so
-                # this is the reading order and it is decided here, once, rather
-                # than re-sorted in the browser.
+                if semantics == score_mod.RESAMPLING:
+                    top = dist[row["answer"]]
+                    if abs(row["p"] - top / row["n_parsed"]) > 1e-12:
+                        sys.exit(f"{d.name}: the modal frequency for {item_id} disagrees "
+                                 f"with score.py ({top}/{row['n_parsed']} vs "
+                                 f"{row['p']}). Refusing.")
                 order = sorted(dist, key=lambda a: (a != row["answer"], -dist[a], a))
                 group["measured"] = {
+                    "kind": (LINEAR_PROBABILITY_POOL
+                             if semantics == score_mod.REPEATED_STATED
+                             else "modal_answer_frequency"),
                     "answer": row["answer"],
                     "confidence": row["p"],
                     "n_parsed": row["n_parsed"],
                     "modal_tie": row["modal_tie"],
                     "distribution": [[a, dist[a]] for a in order],
                 }
+                if semantics == score_mod.REPEATED_STATED:
+                    p3 = row.get("p3") or row.get("p1r")
+                    if not p3:
+                        sys.exit(f"{d.name}: P3 diagnostics missing for {item_id}. Refusing.")
+                    group["measured"].update({
+                        "positive_label": p3["positive_label"],
+                        "positive_probability": p3["positive_probability"],
+                        "pool_tie": p3["pool_tie"],
+                        "vote": p3["vote"],
+                        "draws": p3.get("draws"),
+                        "single_draw": p3["single_draw"],
+                        "dispersion": p3["dispersion"],
+                    })
             groups[item_id].append(group)
 
     # The calls are laid out group by group, so a group is a contiguous run of
@@ -646,7 +1062,7 @@ def model_outputs_for(sample_ids, migrations, items_by_id, score_mod):
 
 
 def stale_inputs_summary(groups_by_item):
-    """Tracking number: archived answers that are answers to a prompt the
+    """Tracking number for active answers elicited against an older prompt the
     bank no longer serves. The endgame is zero — every count here is cleared by
     rerunning that run against today's bank, not by editing this file."""
     by_reason, by_cause = collections.Counter(), collections.Counter()
@@ -678,31 +1094,33 @@ def stale_inputs_summary(groups_by_item):
         "by_reason": dict(sorted(by_reason.items(), key=lambda kv: (-kv[1], kv[0]))),
         "by_cause": dict(sorted(by_cause.items(), key=lambda kv: (-kv[1], kv[0]))),
         "by_run": dict(sorted(runs.items(), key=lambda kv: (-kv[1], kv[0]))),
-        "policy": ("an archived answer is input-stale when the item fields bench/run.py "
-                   "renders into the prompt (clause ref, clause text, metadata_shown, "
-                   "extract and rendition text, task) differ between the run's own "
-                   "archived item bank and today's — plus two overrides no field diff "
-                   "can see: T3's system base changed 2026-08-09, and a run with no "
-                   "archived bank cannot be checked at all"),
+        "policy": ("an active answer is input-stale when the item fields bench/run.py "
+                   "renders into the prompt differ between the run's bound item bank "
+                   "and the active bank, or when equivalent prompt provenance cannot "
+                   "be established"),
     }
 
 
 def headline_runs(runs):
-    """One pointer per (model, protocol): the largest scored run, latest wins ties."""
+    """One pointer per model/method: the largest scored run, latest wins ties."""
     best = {}
     for r in runs:
-        key = (r.get("model"), r.get("protocol"))
+        key = (r.get("model"), *site_method_key(r))
         n = (r["scores"].get("overall") or {}).get("n") or 0
         cur = best.get(key)
         if cur is None or (n, r.get("created_utc") or "") > (cur[0], cur[1].get("created_utc") or ""):
             best[key] = (n, r)
     out = []
-    for (model, protocol), (n, r) in sorted(best.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]))):
+    for _, (n, r) in sorted(best.items(), key=lambda kv: tuple(str(v) for v in kv[0])):
         o = r["scores"].get("overall") or {}
         if not n:
             continue
         out.append({
-            "run_id": r["run_id"], "model": model, "protocol": protocol, "k": r.get("k"),
+            "run_id": r["run_id"], "model": r.get("model"),
+            "protocol": public_protocol(r),
+            "protocol_condition": (None if is_repeated_stated(r)
+                                   else r.get("protocol_condition")),
+            "aggregation": r.get("aggregation"), "k": r.get("k"),
             "n": n, "accuracy": o.get("accuracy"), "brier": o.get("brier"), "ece": o.get("ece"),
             "ci": o.get("ci"),
         })
@@ -710,61 +1128,306 @@ def headline_runs(runs):
     return out
 
 
+# --- automatic cumulative-run boards ----------------------------------------
+
+
+def _automatic_board_condition(manifest):
+    """Prompt/order conditions which must match before runs share a board.
+
+    Model-specific settings (model, thinking and effort) deliberately remain
+    entry attributes: comparing those configurations is the point.  These
+    fields instead determine which items were selected and whether the prompt
+    itself changed.
+    """
+    config = manifest.get("config") or {}
+    return {
+        "seed": str(config.get("seed", manifest.get("seed", ""))),
+        "rationale": bool(config.get("rationale", manifest.get("rationale", False))),
+        "temperature": config.get("temperature", manifest.get("temperature")),
+        "splits": list(manifest.get("splits_filter") or []),
+        # The immutable paid precursor encoded P3 as a P1 condition. That
+        # storage fact is provenance, not a different current board condition.
+        "protocol_condition": (None if is_repeated_stated(manifest)
+                               else manifest_method_field(
+                                   manifest, "protocol_condition")),
+        "aggregation": manifest_method_field(manifest, "aggregation"),
+    }
+
+
+def _automatic_board_candidates(score_mod, active_runs, current_items_path):
+    """Materialize provenance-checked cumulative calls, one candidate per task."""
+    candidates, excluded = [], []
+    for run_rec in active_runs:
+        run_id = run_rec["run_id"]
+        run_dir = BENCH / "runs" / run_id
+        _, manifest = require_complete_active_run(
+            run_id, run_dir, current_items_path)
+        contract = manifest.get("contract")
+        source_protocol = manifest.get("protocol")
+        source_protocol_condition = manifest_method_field(
+            manifest, "protocol_condition")
+        protocol = public_protocol(manifest)
+        protocol_condition = None
+        aggregation = manifest_method_field(manifest, "aggregation")
+        try:
+            semantics = score_mod.protocol_semantics(
+                source_protocol, contract, source_protocol_condition)
+        except ValueError as exc:
+            raise SystemExit(f"automatic leaderboard {run_id}: {exc}") from exc
+        if contract != score_mod.ACTIVE_RUN_CONTRACT:
+            sys.exit(f"automatic leaderboard {run_id}: only active cumulative runs are eligible")
+
+        requests = list(read_jsonl(run_dir / "requests.jsonl"))
+        responses = list(read_jsonl(run_dir / "responses.jsonl"))
+        ledger_path = run_dir / "ledger.jsonl"
+        ledger = list(read_jsonl(ledger_path)) if ledger_path.exists() else []
+        repeats = int(manifest.get("through_repeats") or manifest.get("k") or 1)
+        try:
+            records, coverage = score_mod.cumulative_records(
+                requests, responses, ledger, None, repeats, semantics)
+        except ValueError as exc:
+            raise SystemExit(f"automatic leaderboard {run_id}: {exc}") from exc
+        if (coverage["calls_pending"] or coverage["calls_errors"]
+                or coverage["calls_parsed"] != coverage["calls_planned"]):
+            sys.exit(f"automatic leaderboard {run_id}: cumulative receipts are incomplete")
+
+        for task in sorted({rec["task"] for rec in records}):
+            task_records = [rec for rec in records if rec["task"] == task]
+            rank_items = collections.defaultdict(set)
+            for rec in task_records:
+                rank_items[int(rec["task_rank"])].add(rec["item_id"])
+            ranks = sorted(rank_items)
+            horizon = max(ranks, default=0)
+            if ranks != list(range(1, horizon + 1)):
+                excluded.append({
+                    "model": run_rec.get("model"), "runs": [run_id],
+                    "reason": (f"{protocol}/{task} is not a contiguous cumulative task-rank "
+                               "prefix, so it is shown under Results but not auto-ranked."),
+                })
+                continue
+            if any(len(ids) != 1 for ids in rank_items.values()):
+                sys.exit(f"automatic leaderboard {run_id} {task}: one rank names multiple items")
+            candidates.append({
+                "run_id": run_id,
+                "model": run_rec.get("model") or manifest.get("model"),
+                "protocol": protocol,
+                "protocol_condition": protocol_condition,
+                "aggregation": aggregation,
+                "source_protocol": source_protocol,
+                "source_protocol_condition": source_protocol_condition,
+                "semantics": semantics,
+                "task": task,
+                "contract": contract,
+                "condition": _automatic_board_condition(manifest),
+                "records": task_records,
+                "sequence": tuple(next(iter(rank_items[rank]))
+                                  for rank in range(1, horizon + 1)),
+                "horizon": horizon,
+                "k": repeats if semantics in score_mod.REPEATED_SEMANTICS else 1,
+            })
+    return candidates, excluded
+
+
+def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
+                                 active_models, draws=1000, seed=20260802):
+    """Build exact common-prefix boards without conflating protocols or tasks."""
+    grouped = collections.defaultdict(list)
+    for candidate in candidates:
+        candidate.setdefault("protocol_condition", None)
+        candidate.setdefault("aggregation", None)
+        candidate.setdefault("source_protocol", candidate["protocol"])
+        candidate.setdefault(
+            "source_protocol_condition", candidate["protocol_condition"])
+        candidate.setdefault(
+            "semantics", score_mod.protocol_semantics(
+                candidate["source_protocol"], candidate["contract"],
+                candidate["source_protocol_condition"]))
+        condition_hash = canonical_sha256(candidate["condition"])[:10]
+        # P3 is a separately declared K-call linear-pool system. Unlike P2's
+        # shared-prefix comparison, P3@5 must never silently become P3@3 merely
+        # because another model stopped earlier.
+        exact_k = (candidate["k"]
+                   if candidate["semantics"] == score_mod.REPEATED_STATED else None)
+        key = (candidate["protocol"], candidate["protocol_condition"],
+               candidate["aggregation"], exact_k,
+               candidate["task"], condition_hash)
+        grouped[key].append(candidate)
+
+    boards = []
+    for (protocol, protocol_condition, aggregation, exact_k,
+         task, condition_hash), cohort in sorted(
+            grouped.items(), key=lambda pair: tuple(str(value) for value in pair[0])):
+        cohort.sort(key=lambda row: (row["model"] or "", row["run_id"]))
+        common_n = min(row["horizon"] for row in cohort)
+        common_sequence = cohort[0]["sequence"][:common_n]
+        if any(row["sequence"][:common_n] != common_sequence for row in cohort[1:]):
+            sys.exit(
+                f"automatic leaderboard {protocol}/{task}: runs with the same ordering "
+                "condition disagree on their rank-1..N item identities. Refusing.")
+        if protocol == CURRENT_P3_PROTOCOL:
+            common_k = int(exact_k)
+        else:
+            common_k = min(row["k"] for row in cohort) if protocol == "P2" else 1
+
+        entries, prompt_sequences = [], []
+        for candidate in cohort:
+            selected = [
+                rec for rec in candidate["records"]
+                if int(rec["task_rank"]) <= common_n
+                and (candidate["semantics"] not in score_mod.REPEATED_SEMANTICS
+                     or int(rec["repeat_index"]) <= common_k)
+            ]
+            rows, dropped = score_mod.aggregate(
+                selected, items_by_id, candidate["source_protocol"],
+                expected_repeats=(common_k
+                                  if candidate["semantics"] in score_mod.REPEATED_SEMANTICS
+                                  else None),
+                run_contract=candidate["contract"],
+                protocol_condition=candidate["source_protocol_condition"],
+                aggregation=aggregation,
+            )
+            if dropped or {row["item_id"] for row in rows} != set(common_sequence):
+                sys.exit(
+                    f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
+                    f"common prefix did not score exactly ({dropped[:1]}). Refusing.")
+
+            prompt_by_item = collections.defaultdict(set)
+            for rec in selected:
+                prompt_by_item[rec["item_id"]].add(rec.get("prompt_sha256"))
+            if any(len(prompt_by_item[item_id]) != 1 for item_id in common_sequence):
+                sys.exit(
+                    f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
+                    "one item has multiple prompt identities. Refusing.")
+            prompt_sequences.append(tuple(
+                next(iter(prompt_by_item[item_id])) for item_id in common_sequence))
+
+            by_label = {}
+            for label in sorted({row["label"] for row in rows}):
+                subset = [row for row in rows if row["label"] == label]
+                by_label[label] = {
+                    "n": len(subset),
+                    "accuracy": score_mod.accuracy(subset),
+                    "mean_p": score_mod.mean_confidence(subset),
+                }
+            entries.append({
+                "entry_id": candidate["run_id"],
+                "model": candidate["model"],
+                "runs": [candidate["run_id"]],
+                "source_prefix_n": candidate["horizon"],
+                "source_k": candidate["k"],
+                "source_protocol": candidate["source_protocol"],
+                "source_protocol_condition": candidate[
+                    "source_protocol_condition"],
+                "protocol_condition": protocol_condition,
+                "aggregation": aggregation,
+                **score_mod.metric_set(rows),
+                "mean_p": score_mod.mean_confidence(rows),
+                "ci": score_mod.bootstrap(rows, draws, seed),
+                "by_label": by_label,
+                "reliability": score_mod.adaptive_bins(rows),
+                "p4": score_mod.selective_prediction(rows),
+            })
+
+        if len(set(prompt_sequences)) != 1:
+            sys.exit(
+                f"automatic leaderboard {protocol}/{task}: entries received different prompts "
+                "on the claimed common prefix. Refusing.")
+        entries.sort(key=lambda row: (
+            row["brier"] is None, row["brier"] if row["brier"] is not None else 0,
+            row["model"] or "", row["entry_id"]))
+
+        cohort_models = {entry["model"] for entry in entries}
+        caveats = []
+        if common_n < 100:
+            caveats.append(
+                f"N={common_n} is an early cumulative prefix; estimates are unstable.")
+        if len(cohort_models) < 2:
+            caveats.append(
+                "Only one model is active on this board, so no cross-model ranking exists yet.")
+        if cohort_models != set(active_models):
+            caveats.append(
+                f"Comparable data cover {len(cohort_models)} of {len(set(active_models))} "
+                "active models.")
+        if any(entry["source_prefix_n"] > common_n for entry in entries):
+            caveats.append("Longer runs are truncated to the exact shared item prefix.")
+        if protocol == "P2" and any(entry["source_k"] > common_k for entry in entries):
+            caveats.append(f"Repeated runs are compared at their shared repeat prefix K={common_k}.")
+
+        condition = cohort[0]["condition"]
+        if protocol == CURRENT_P3_PROTOCOL:
+            method = f"repeated stated-confidence linear pool · K={common_k}"
+            method_slug = f"p3-linear-pool-k{common_k}"
+            note = ("Exact common cumulative task-rank prefix 1..N; every entry uses "
+                    f"K={common_k} byte-identical stated-probability calls per item and "
+                    "the same predeclared linear probability pool.")
+        elif protocol == "P1":
+            method = "one-shot stated probability"
+            method_slug = "p1-one-shot"
+            note = ("Exact common cumulative task-rank prefix 1..N; every entry uses "
+                    "the same one-shot stated-probability prompt.")
+        else:
+            method = f"verdict-repeat agreement · K={common_k}"
+            method_slug = "p2-agreement"
+            note = ("Exact common cumulative task-rank prefix 1..N; every entry uses "
+                    "the same items and byte-identical verdict prompt under P2.")
+        boards.append({
+            "board_id": f"cumulative-{method_slug}-{task.lower()}-{condition_hash}",
+            "title": f"{task} · {protocol} {method}",
+            "primary": False,
+            "origin": "automatic_cumulative",
+            "tasks": [task],
+            "task": task,
+            "protocol": protocol,
+            "protocol_condition": protocol_condition,
+            "aggregation": aggregation,
+            "k": common_k,
+            "n_items": common_n,
+            "question": (f"How do active model configurations perform on {task} under "
+                         f"{method}?"),
+            "note": note,
+            "condition": condition,
+            "comparison": {
+                # Multiple archived executions of one model configuration are
+                # still a single-model board, not a model ranking.
+                "rankable": len(cohort_models) > 1,
+                "cross_model": len(cohort_models) > 1,
+                "n_entries": len(entries),
+                "n_models": len(cohort_models),
+                "n_active_models": len(set(active_models)),
+                "common_prefix_n": common_n,
+                "complete_across_active_models": cohort_models == set(active_models),
+                "caveats": caveats,
+            },
+            "accounting": {
+                "n_expected": common_n, "n_scored": common_n,
+                "n_mapped": 0, "n_absent": 0, "absent": [],
+            },
+            "entries": entries,
+        })
+    return boards
+
+
+def automatic_cumulative_leaderboard(score_mod, items_by_id, active_runs,
+                                     current_items_path, draws=1000, seed=20260802):
+    candidates, excluded = _automatic_board_candidates(
+        score_mod, active_runs, current_items_path)
+    models = [run.get("model") for run in active_runs if run.get("model")]
+    return {
+        "boards": _automatic_cumulative_boards(
+            score_mod, items_by_id, candidates, models, draws, seed),
+        "excluded": excluded,
+    }
+
+
 # --- leaderboard -------------------------------------------------------------
 # A board is a SAME-ITEMS comparison: every entry answered the identical item
 # set, so ranking within a board is meaningful and ranking across boards is
-# not (the site says so in words). Entries pool run dirs where FINDINGS §4
-# already discloses the pooling (T3 n=297 = the 267-item sweep + the 30 T3
-# items inside the Phase A run; item_ids and labels are identical across the
-# bank versions involved). Runs that CANNOT be ranked are listed under
-# `excluded` with the reason — the opus runs lost 126/150 and 125/150 calls to
-# credit exhaustion mid-run (400 "credit balance too low" — the account ran
-# dry on 2026-08-02 morning, before the top-up), and the surviving quarter is
-# selection-biased, so ranking it would be a silent lie.
-
-LEADERBOARD_BOARDS = [
-    {
-        "board_id": "t3-appeal",
-        "title": "T3 appeal-survival",
-        "primary": True,
-        "question": "Did the Appeal Board uphold the Panel's ruling, or overturn it?",
-        "note": ("The benchmark's central exhibit: the class where the best-informed human "
-                 "adjudicators disagreed. Both models answered the same 297 items."),
-        "entries": [
-            {"model": "claude-sonnet-5",
-             "sources": [("20260802T212935Z-64928", None), ("phaseA-sonnet-P2", "T3")]},
-            {"model": "gpt-5.1",
-             "sources": [("20260804T132819Z-68493", None), ("20260804T132921Z-69318", None)]},
-        ],
-    },
-    {
-        "board_id": "phase-a",
-        "title": "Phase A dev subset",
-        "primary": False,
-        "question": "Mixed tasks: T1 breach-verdict, T1-triage (complaint only), T3 appeal-survival.",
-        "note": "The 150-item stratified dev subset both Anthropic models ran in full.",
-        "entries": [
-            {"model": "claude-sonnet-5", "sources": [("phaseA-sonnet-P2", None)]},
-            {"model": "claude-haiku-4-5", "sources": [("phaseA-haiku-P2", None)]},
-        ],
-    },
-]
-
-LEADERBOARD_EXCLUDED = [
-    {"model": "claude-opus-5", "runs": ["20260802T101118Z", "20260802T101119Z"],
-     "reason": ("126/150 and 125/150 calls failed — the Anthropic account ran out of credit "
-                "mid-run (400: credit balance too low), so which items completed is an "
-                "accident of call order; the surviving quarter's n=24 accuracy of 0.875 is "
-                "not comparable to any full run. A clean opus run needs an Anthropic top-up")},
-    {"model": "gpt-5.1 (T1)", "runs": ["20260802T101120Z"],
-     "reason": ("a clean 150-call T1 run, but it was served from a pre-final bank version "
-                "and 38 of its 150 items were dropped in later bank rebuilds; scoring the "
-                "112-item remnant would match neither the archived scores nor FINDINGS "
-                "§4.2, which reports the run against its contemporaneous bank (0.753)")},
-]
+# not. Board membership is declared in active_results.json; archived runs are
+# inert until explicitly activated there.
 
 
-def leaderboard(score_mod, items_by_id, migrations, exclusions, draws=1000, seed=20260802):
+def leaderboard(score_mod, items_by_id, migrations, exclusions, board_specs,
+                excluded_specs, draws=1000, seed=20260802):
     """Compute same-items boards from archived responses joined to the CURRENT bank.
 
     Metrics come from score.py's own functions — one implementation, no drift.
@@ -777,7 +1440,7 @@ def leaderboard(score_mod, items_by_id, migrations, exclusions, draws=1000, seed
     excluded them for). Anything else still refuses.
     """
     boards = []
-    for spec in LEADERBOARD_BOARDS:
+    for spec in board_specs:
         entries, id_sets, accountings = [], [], []
         for e in spec["entries"]:
             responses, expected, mapped, absent = [], set(), set(), {}
@@ -864,6 +1527,7 @@ def leaderboard(score_mod, items_by_id, migrations, exclusions, draws=1000, seed
                 # Pooled over the ENTRY's board rows, not per run — a per-run
                 # curve would mix Phase A's non-T3 items into the T3 exhibit.
                 "reliability": score_mod.adaptive_bins(rows),
+                "p4": score_mod.selective_prediction(rows),
             })
         if len({frozenset(s) for s in id_sets}) > 1:
             sizes = " vs ".join(str(len(s)) for s in id_sets)
@@ -882,6 +1546,7 @@ def leaderboard(score_mod, items_by_id, migrations, exclusions, draws=1000, seed
             "board_id": spec["board_id"],
             "title": spec["title"],
             "primary": spec["primary"],
+            "tasks": spec.get("tasks", []),
             "question": spec["question"],
             "note": spec["note"],
             "n_items": len(id_sets[0]) if id_sets else 0,
@@ -891,16 +1556,17 @@ def leaderboard(score_mod, items_by_id, migrations, exclusions, draws=1000, seed
             "accounting": accountings[0],
             "entries": entries,
         })
-    return {"boards": boards, "excluded": LEADERBOARD_EXCLUDED,
+    return {"boards": boards, "excluded": excluded_specs,
             "policy": ("rows on one board answered the identical item set under the same "
                        "protocol; ranked by Brier (proper score: right AND knowing how "
-                       "right), CIs case-blocked bootstrap")}
+                       "right), CIs source-report sibling-group-blocked bootstrap "
+                       "with primary-case fallback")}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n", type=int, default=0,
-                    help="sampled items to export in full (0, the default, = the whole bank — "
+                    help="items to export in full (0, the default, = the whole bank — "
                          "the site's standing policy since 2026-08-05; a bare invocation must "
                          "never silently shrink the site back to a sample). "
                          f"The diagnostic-class floor of {TAG_FLOOR} per class takes precedence, "
@@ -919,12 +1585,14 @@ def main():
     run_mod = load_run_module()
     urls = case_urls()
     verd = verdict_index()
+    active_results = load_active_results()
+    active_run_ids = active_results["active_run_ids"]
+    print(f"active results registry: {len(active_run_ids)} run(s)")
 
     items = list(read_jsonl(args.items))
     print(f"read {len(items):,} items from {args.items}")
-    # --n 0 means the whole bank (decided 2026-08-04: the audit is to
-    # cover every item, not a sample). The sampler degenerates cleanly: the
-    # round-robin exhausts every stratum, so order stays deterministic.
+    # --n 0 means the whole bank. Full export bypasses subset selection; the
+    # published browser order is applied explicitly below.
     if args.n == 0:
         args.n = len(items)
 
@@ -948,14 +1616,14 @@ def main():
         extract_chars.append(len(it["inputs"]["extract_text"]))
     extract_chars.sort()
 
-    sample = stratified_sample(items, args.n, args.seed)
-    print(f"sampled {len(sample)} items over "
-          f"{len({(i['task'], i['label'], era_of(i)) for i in sample})} strata")
+    published = stratified_sample(items, args.n, args.seed)
+    print(f"selected {len(published)} published items over "
+          f"{len({(i['task'], i['label'], era_of(i)) for i in published})} strata")
     # Emit in case order so the browser's default view groups siblings — the
-    # same case under T1 and T1-triage lands adjacent, which is the comparison
+    # same case under T1 and T2 lands adjacent, which is the comparison
     # the design is built around. (Selection order is diagnostic-class-first,
     # which would otherwise put every appeal flip at the top of the table.)
-    sample.sort(key=lambda it: (it["case_number"], it["task"], it["item_id"]))
+    published.sort(key=lambda it: (it["case_number"], it["task"], it["item_id"]))
 
     items_dir = static_out / "items"
     if items_dir.exists():
@@ -970,25 +1638,29 @@ def main():
     by_id = {it["item_id"]: it for it in items}
     score_mod = load_score_module()
     outputs_by_item, groups_by_item, answers_accounting = model_outputs_for(
-        {it["item_id"] for it in items}, migrations, by_id, score_mod)
+        {it["item_id"] for it in items}, migrations, by_id, score_mod, active_run_ids,
+        sha256_of(args.items), args.items)
     stale = stale_inputs_summary(groups_by_item)
+    if stale["n_answers_stale"]:
+        sys.exit(
+            f"active results include {stale['n_answers_stale']} answer(s) elicited "
+            "against prompts that no longer match the active bank; rerun them before activation")
     confident_wrong = sorted(
         iid for iid, outs in outputs_by_item.items()
         if any(o["answer"] != by_id[iid]["label"]
                and (o["probability"] or 0) >= 0.8 for o in outs))
-    sampled_ids = {it["item_id"] for it in sample}
-    floor_added = [by_id[i] for i in confident_wrong if i not in sampled_ids]
-    sample.extend(floor_added)
-    sample.sort(key=lambda it: (it["case_number"], it["task"], it["item_id"]))
-    print(f"model outputs: {sum(len(v) for v in outputs_by_item.values())} archived answers; "
-          f"audit floor added {len(floor_added)} of {len(confident_wrong)} confidently-wrong "
-          f"items (wrong at stated p>=0.8) not already sampled")
-    print(f"  archived ids: {answers_accounting['n_ids_referenced']} referenced, "
+    published_ids = {it["item_id"] for it in published}
+    floor_added = [by_id[i] for i in confident_wrong if i not in published_ids]
+    published.extend(floor_added)
+    published.sort(key=lambda it: (it["case_number"], it["task"], it["item_id"]))
+    print(f"model outputs: {sum(len(v) for v in outputs_by_item.values())} active answers; "
+          f"added {len(floor_added)} of {len(confident_wrong)} active confidently-wrong "
+          f"items outside the requested selection")
+    print(f"  active ids: {answers_accounting['n_ids_referenced']} referenced, "
           f"{answers_accounting['n_ids_mapped']} mapped through id_migrations.jsonl, "
           f"{answers_accounting['n_ids_unresolved']} unresolved "
-          f"({answers_accounting['n_answers_unresolved']} answers: T5 items live in a "
-          "separate file, plus the pre-l2.4 ids DEFECTS R16 records)")
-    print(f"  input-stale: {stale['n_answers_stale']} of {stale['n_answers']} archived "
+          f"({answers_accounting['n_answers_unresolved']} answers not in the active bank)")
+    print(f"  input-stale: {stale['n_answers_stale']} of {stale['n_answers']} active "
           f"answers were elicited against inputs that have since moved "
           f"({stale['n_groups_stale']}/{stale['n_groups']} (run, item) groups, "
           f"{stale['n_items_affected']} items) — clears by rerunning, not by editing")
@@ -996,7 +1668,7 @@ def main():
         print(f"    {n:5d} answers  {cause}")
 
     index = []
-    for it in sample:
+    for it in published:
         ref = it["inputs"]["clause_ref"]
         meta = it["inputs"]["metadata_shown"]
         prov = it["inputs"].get("extract_provenance") or []
@@ -1056,7 +1728,7 @@ def main():
                 "provenance": prov,
                 "model_outputs": outputs_by_item.get(it["item_id"], []),
                 # One row per (run, item) over the calls above: `first`/`n`
-                # index into model_outputs, so the drawer folds a P1 sweep into
+                # index into model_outputs, so the drawer folds a P2 sweep into
                 # its measurement without a second copy of the calls.
                 "model_groups": groups_by_item.get(it["item_id"], []),
             },
@@ -1067,7 +1739,7 @@ def main():
     (lib_out / "items_index.json").write_text(
         json.dumps(index, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
-    runs = collect_runs()
+    runs = collect_runs(active_run_ids, args.items)
     (lib_out / "runs.json").write_text(
         json.dumps(runs, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"exported {len(runs)} scored runs")
@@ -1082,12 +1754,29 @@ def main():
     print(f"exported {len(migrations)} id migrations for the review store")
 
     items_by_id = by_id
-    board_data = leaderboard(score_mod, items_by_id, migrations, exclusion_reasons())
+    declared_board_data = leaderboard(
+        score_mod, items_by_id, migrations, exclusion_reasons(),
+        active_results["leaderboard_boards"], active_results["leaderboard_excluded"])
+    automatic_board_data = automatic_cumulative_leaderboard(
+        score_mod, items_by_id, runs, args.items)
+    board_data = {
+        "boards": automatic_board_data["boards"] + declared_board_data["boards"],
+        "excluded": (automatic_board_data["excluded"]
+                     + declared_board_data["excluded"]),
+        "policy": (
+            "automatic boards isolate one active task and exact method condition and "
+            "recompute every entry on the shared cumulative item prefix; P1 stated "
+            "confidence, P2 verdict-repeat agreement and P3 repeated stated-confidence "
+            "linear pools never mix (P2 uses "
+            "its shared repeat prefix); declared boards retain their explicit same-items "
+            "policy; P4 risk–coverage is computed offline from each exact board; no rank "
+            "is implied by a one-entry board"),
+    }
     (lib_out / "leaderboard.json").write_text(
         json.dumps(board_data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     for b in board_data["boards"]:
         a = b["accounting"]
-        print(f"exported leaderboard: {b['board_id']} ({len(b['entries'])} models, "
+        print(f"exported leaderboard: {b['board_id']} ({len(b['entries'])} entries, "
               f"{b['n_items']} items) — {a['n_scored']} scored of {a['n_expected']} "
               f"archived, {a['n_mapped']} id(s) mapped, {a['n_absent']} absent"
               + (": " + ", ".join(f"{r['item_id']} ({r['reason']})" for r in a["absent"])
@@ -1096,7 +1785,6 @@ def main():
     meta = {
         "generated_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
             .strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "seed": args.seed,
         "bank": {
             "n_items": len(items),
             "n_cases": len({it["case_number"] for it in items}),
@@ -1114,49 +1802,51 @@ def main():
                 "mean": round(sum(extract_chars) / len(extract_chars)),
             },
         },
-        "sample": {
-            "n": len(sample),
-            "tasks": dict(sorted(collections.Counter(i["task"] for i in sample).items())),
-            "labels": dict(sorted(collections.Counter(f"{i['task']}:{i['label']}" for i in sample).items())),
-            "eras": {str(k): v for k, v in sorted(collections.Counter(era_of(i) for i in sample).items(),
+        "published": {
+            "n": len(published),
+            "is_full_bank": len(published) == len(items),
+            "tasks": dict(sorted(collections.Counter(i["task"] for i in published).items())),
+            "labels": dict(sorted(collections.Counter(f"{i['task']}:{i['label']}" for i in published).items())),
+            "eras": {str(k): v for k, v in sorted(collections.Counter(era_of(i) for i in published).items(),
                                                   key=lambda kv: (kv[0] is None, kv[0]))},
-            "policy": (f"deterministic (seed {args.seed}): a floor of {TAG_FLOOR} items for each "
-                       "diagnostic class, then round-robin over (task, label, Code year); plus "
-                       "every item any archived run answered wrongly at stated p>=0.8 (the "
-                       "audit floor — where a label error would hide)"),
+            "policy": ("The full active item bank, ordered by case, task and item id for browsing; "
+                       "evaluation prefixes are fixed independently by bench/run.py"
+                       if len(published) == len(items) else
+                       f"An explicitly requested deterministic review subset (seed {args.seed}), "
+                       "stratified by task, label and Code year"),
         },
         "tasks_described": {
             "T1": {"question": "Did the Panel rule a breach of this clause?",
                    "answers": ["breach", "no_breach"],
                    "shown": "complaint + respondent's written response",
                    "n": tasks.get("T1", 0)},
-            "T1-triage": {"question": "Did the Panel rule a breach of this clause?",
-                          "answers": ["breach", "no_breach"],
-                          "shown": "complaint only — the defence is hidden",
-                          "n": tasks.get("T1-triage", 0)},
+            "T2": {"question": "Did the Panel rule a breach of this clause?",
+                   "answers": ["breach", "no_breach"],
+                   "shown": "complaint only — the defence is hidden",
+                   "n": tasks.get("T2", 0)},
             "T3": {"question": "Did the Appeal Board uphold the Panel's ruling, or overturn it?",
                    "answers": ["upheld", "overturned"],
                    "shown": "complaint + response + the Panel's ruling for the clause",
                    "n": tasks.get("T3", 0)},
         },
         "protocols": {
-            "P2": "verbalized: one call per item; the model states an answer and a probability",
-            "P1": "behaviourist: K verdict-only calls over perturbed presentations; confidence is the modal-answer frequency, computed by us",
+            "P1": "one-shot stated confidence: one answer-and-probability call per item",
+            "P2": "verdict-repeat agreement: K byte-identical verdict-only calls; confidence is the modal-answer frequency",
+            "P3": "repeated stated-confidence linear pool: K byte-identical answer-and-probability calls; equally weighted oriented probabilities are averaged",
+            "P4": "offline selective prediction: threshold, risk–coverage and AURC analysis over any completed P1/P2/P3 confidence view; no new model calls",
         },
         "runs": {
             "n_scored": len(runs),
+            "active_run_ids": active_run_ids,
             "headline": headline_runs(runs),
         },
-        # What the archive holds vs what could be attached to an item page.
-        # Durable rather than a stdout line: unresolved ids are answers that
-        # exist and are shown nowhere, which is exactly the class that has to
-        # stay countable (T5 by the separate-file rule, R16's pre-l2.4 ids).
-        "archived_answers": answers_accounting,
-        # How much of the archive is answering a prompt the bank no longer
+        # What the activated archive runs hold vs what could be attached to an
+        # item page. Historical inactive runs remain untouched under bench/runs/.
+        "active_answers": answers_accounting,
+        # How much of the active result set is answering a prompt the bank no longer
         # serves. Durable and countable on purpose: the number is the backlog
         # for the T3/pre-l2.4 reruns, and its endgame is zero.
         "stale_inputs": stale,
-        "audit": audit_summary(),
         "sources": [
             {"file": "bench/items.jsonl", "sha256": sha256_of(args.items),
              "bytes": args.items.stat().st_size},

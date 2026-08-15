@@ -49,6 +49,12 @@ Usage:
   python3 fetch_code.py --limit 5        # stop after 5 fetches
   python3 fetch_code.py --extract-only   # rebuild clauses.jsonl from disk
   python3 fetch_code.py --refresh-landing  # re-fetch landing pages (site changed)
+  python3 fetch_code.py --locked         # recover the publication-locked bytes
+
+``--locked`` bypasses discovery and treats the tracked manifest as immutable.
+It is the public reproduction path: every response must match the recorded
+byte count and SHA-256 before it is written.  The normal discovery mode remains
+available for creating a later corpus.
 """
 
 import argparse
@@ -342,6 +348,104 @@ class Run:
 
 def as_text(data):
     return data.decode("utf-8", errors="replace") if data else ""
+
+
+def recover_locked(args):
+    """Recover exactly the raw Code resources pinned by the tracked manifest."""
+    manifest_rows = read_jsonl(MANIFEST)
+    latest = {}
+    for row in manifest_rows:
+        latest[row["url"]] = row
+    manifest_rows = sorted(
+        latest.values(),
+        key=lambda r: (r.get("code_year") or 0, r.get("kind") or "", r["url"]),
+    )
+    # Three discovered CMS links are pinned 404s.  They are durable exclusions,
+    # not missing source files.  Older on-disk rows can have http_status null;
+    # file+bytes+hash is their complete publication lock.
+    rows = [row for row in manifest_rows if row.get("file")]
+    exclusions = [row for row in manifest_rows if not row.get("file")]
+    malformed = [
+        row.get("url")
+        for row in rows
+        if not isinstance(row.get("bytes"), int)
+        or not re.fullmatch(r"[0-9a-f]{64}", row.get("sha256", ""))
+    ]
+    malformed.extend(
+        row.get("url")
+        for row in exclusions
+        if row.get("http_status") in (None, 200)
+    )
+    if malformed:
+        print(f"Publication lock has {len(malformed)} incomplete row(s).")
+        return manifest_rows, 0, 0, len(malformed), False
+
+    fetched = skipped = failed = requests = 0
+    stopped_early = False
+    for row in rows:
+        destination = OUT / row["file"]
+        data = destination.read_bytes() if destination.exists() else None
+        if data is not None and (
+            len(data) == row["bytes"]
+            and hashlib.sha256(data).hexdigest() == row["sha256"]
+        ):
+            skipped += 1
+            continue
+
+        if args.limit is not None and requests >= args.limit:
+            stopped_early = True
+            break
+        if args.dry_run:
+            state = "corrupt" if data is not None else "missing"
+            print(f"WOULD FETCH [{state}; {row['kind']}] {row['url']} -> {row['file']}")
+            requests += 1
+            continue
+
+        try:
+            status, candidate, _ = fetch(row["url"])
+        except Exception as exc:  # noqa: BLE001 - report the complete gap set
+            log_failure(
+                "code-locked", row["url"], f"{type(exc).__name__}: {exc}"
+            )
+            failed += 1
+            requests += 1
+            time.sleep(CRAWL_DELAY)
+            continue
+        requests += 1
+        got = hashlib.sha256(candidate).hexdigest()
+        if status != 200:
+            log_failure("code-locked", row["url"], f"HTTP {status}")
+            failed += 1
+        elif len(candidate) != row["bytes"] or got != row["sha256"]:
+            log_failure(
+                "code-locked", row["url"], "response differs from publication lock"
+            )
+            failed += 1
+        elif row["kind"] == "pdf" and candidate[:5] != b"%PDF-":
+            log_failure("code-locked", row["url"], "response is not a PDF")
+            failed += 1
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(candidate)
+            fetched += 1
+            print(
+                f"  {status}  {len(candidate):>8,}b  [{row['kind']}] "
+                f"{row['file']}  [locked]"
+            )
+        time.sleep(CRAWL_DELAY)
+
+    complete = fetched + skipped == len(rows)
+    if args.dry_run:
+        print(
+            f"publication-locked Code plan: {len(rows)} resources, "
+            f"{len(exclusions)} pinned exclusion(s), {skipped} present, "
+            f"{requests} fetch(es) needed"
+        )
+    else:
+        print(f"fetched {fetched}, present {skipped}, failed {failed}")
+        if stopped_early:
+            print("stopped at --limit; rerun the same command to resume")
+    return manifest_rows, fetched, skipped, failed, complete
 
 
 def discover_and_fetch(run):
@@ -695,13 +799,31 @@ def main():
                     help="rebuild clauses.jsonl from disk, no requests")
     ap.add_argument("--refresh-landing", action="store_true",
                     help="re-fetch landing/index pages even if on disk")
+    ap.add_argument(
+        "--locked",
+        action="store_true",
+        help="recover exact raw bytes from the tracked publication manifest",
+    )
     args = ap.parse_args()
+
+    if args.locked and (args.extract_only or args.refresh_landing):
+        ap.error("--locked cannot be combined with --extract-only/--refresh-landing")
 
     OUT.mkdir(parents=True, exist_ok=True)
     HTML_DIR.mkdir(parents=True, exist_ok=True)
     PDF_DIR.mkdir(parents=True, exist_ok=True)
 
-    if args.extract_only:
+    if args.locked:
+        rows, _fetched, _skipped, failed, complete = recover_locked(args)
+        if args.dry_run or not complete:
+            return 1 if failed else 0
+        editions = {}
+        for row in rows:
+            if row.get("kind") == "year_index" and row.get("code_year"):
+                editions[row["code_year"]] = row["url"][len(BASE):]
+        clauses, skipped = extract(rows)
+        collect_code_years(rows, editions)
+    elif args.extract_only:
         rows = read_jsonl(MANIFEST)
         editions = {}
         for m in rows:

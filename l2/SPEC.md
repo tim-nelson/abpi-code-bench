@@ -258,7 +258,7 @@ about the Panel, `dual_ruling_appeal_board` about the Appeal Board. They are
 not folded into one because they refuse different things: on AUTH/1841/5/06 the
 Panel ruled Clause 7.2 once (so the T1 label is sound) and the Appeal Board
 ruled it both ways (so no panel→board transition exists for T3). One flag
-would have deleted ~40 correctly-labelled T1/T1-triage items to describe an
+would have deleted ~40 correctly-labelled T1/T2 items to describe an
 appeal-side fact. `dual_ruling_appeal_board ⇒ appeal_board is null`, and the
 receipts must show both polarities attributed to the Board; both are validator
 invariants.

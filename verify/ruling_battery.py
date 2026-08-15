@@ -107,7 +107,7 @@ BATTERY = [
      "precedent window is symmetric"),
     ("The complainant noted that he had previously complained about an identical "
      "advertisement and a breach of the Code was ruled (Case AUTH/1756/9/05).", False, False,
-     "AUTH/1854/6/06's complaint -- three T1-triage items depend on this staying quotable"),
+     "AUTH/1854/6/06's complaint -- three T2 items depend on this staying quotable"),
     # --- and the exemption must NOT swallow this case's own ruling.
     ("In Case AUTH/9999/9/99 no breach of Clause 9.2 was ruled.", True, True,
      "the citation names THIS file's own case, so it is not precedent; it is the leak"),
