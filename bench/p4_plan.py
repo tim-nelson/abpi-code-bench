@@ -50,9 +50,17 @@ ACTIVE_TASKS = ("T1", "T2", "T3")
 # incentive-insensitivity itself and licenses no implied-confidence reading
 # from the core grid (2026-08-16 pilot: Sonnet flat 3-5% on core while Sol
 # fell 34%->0%, which is what this condition disambiguates).
+# "dominance" is the decisive payoff-blindness test (2026-08-16 ladder,
+# stage B): at c=-10 a referral GAINS 10 points, so referring strictly
+# dominates answering at every confidence level including certainty — any
+# answer proves the stated payoffs do not enter the decision; at c=150 > X
+# referral costs more than a guaranteed-wrong answer, so answering strictly
+# dominates and any referral proves the same. Negative c selects the gains
+# wording (P4_GAIN_TEMPLATE) with g = -c.
 GRIDS = {
     "core": (5, 15, 25, 35, 45),
     "anchor": (1, 99),
+    "dominance": (-10, 150),
 }
 COST_GRID = GRIDS["core"]
 COST_X = 100
@@ -73,6 +81,24 @@ P4_INSTRUCTION_TEMPLATE = (
     "recorded but not scored. Do not explain."
 )
 
+# Identical except the referral clause: used for negative cost levels, where
+# the reviewer pays out rather than charges.
+P4_GAIN_TEMPLATE = (
+    "Your response is scored. If you answer and your verdict matches the one the "
+    "adjudicator actually reached, you lose 0 points; if it does not match, you lose "
+    "{x} points. Alternatively you may refer the case to a specialist reviewer, whose "
+    "verdict is always correct; a referral gains {g} points whatever the reviewer finds. "
+    "Reply with your decision - 'answer' to stand by your verdict, or 'refer' to "
+    "send the case to the reviewer - and your verdict either way. A referred verdict is "
+    "recorded but not scored. Do not explain."
+)
+
+
+def render_instruction(c: int) -> str:
+    if c < 0:
+        return P4_GAIN_TEMPLATE.format(x=COST_X, g=-c)
+    return P4_INSTRUCTION_TEMPLATE.format(x=COST_X, c=c)
+
 
 def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -92,6 +118,7 @@ def planner_config(args: SimpleNamespace) -> dict:
         "aggregation": AGGREGATION,
         "request_template_protocol": REQUEST_TEMPLATE_PROTOCOL,
         "instruction_template": P4_INSTRUCTION_TEMPLATE,
+        "gain_instruction_template": P4_GAIN_TEMPLATE,
         # planner_sha256 above binds this file's bytes into the hash, so a
         # planner edit ends a run's extension lineage: grow a run only with
         # byte-identical planner code, else start a new run directory.
@@ -131,8 +158,7 @@ def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict
         raise AssertionError(
             "run.py's P1 instruction no longer matches; refusing to build P4 "
             "prompts against an unrecognised template")
-    request["system"] = (system[: -len(P1_INSTRUCTION)]
-                         + P4_INSTRUCTION_TEMPLATE.format(x=COST_X, c=c))
+    request["system"] = system[: -len(P1_INSTRUCTION)] + render_instruction(c)
     request["output_config"]["format"]["schema"] = p4_output_schema(item)
     return request
 
@@ -173,9 +199,12 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
                 "stage": "verdict", "c": c, "cost_x": COST_X,
                 "request_sha256": request_hash,
             }
+            # negative (gains) levels get their own tag: a bare minus sign
+            # would smuggle an extra hyphen into the hyphen-delimited id
+            c_tag = f"c{c:02d}" if c >= 0 else f"cg{-c:02d}"
             call_id = (
                 f"call-p4-{safe_task}-{item['_task_rank']:06d}-"
-                f"c{c:02d}-{run.digest(identity)[:20]}"
+                f"{c_tag}-{run.digest(identity)[:20]}"
             )
             if len(call_id) > 64:
                 raise ValueError(f"provider custom_id exceeds 64 characters: {call_id}")
@@ -471,20 +500,26 @@ def self_test(items_path: pathlib.Path) -> int:
         else:
             raise AssertionError(f"parsed {bad!r} should have been rejected")
 
-    anchor_args = SimpleNamespace(**{**vars(args), "condition": "anchor"})
-    a_calls, a_config = build_call_plan(items, anchor_args)
-    assert len(a_calls) == 2 * len(GRIDS["anchor"])
-    assert sorted({c["cost_points"] for c in a_calls}) == sorted(GRIDS["anchor"])
-    assert {c["call_id"].split("-")[4] for c in a_calls} == {"c01", "c99"}
-    assert run.digest(a_config) != run.digest(config), \
-        "anchor condition must hash differently from core"
-    for row in a_calls:
-        wanted = P4_INSTRUCTION_TEMPLATE.format(x=COST_X, c=row["cost_points"])
-        assert row["request"]["system"].endswith(wanted)
+    hashes = {run.digest(config)}
+    for condition in ("anchor", "dominance"):
+        c_args = SimpleNamespace(**{**vars(args), "condition": condition})
+        c_calls, c_config = build_call_plan(items, c_args)
+        assert len(c_calls) == 2 * len(GRIDS[condition])
+        assert sorted({c["cost_points"] for c in c_calls}) == sorted(GRIDS[condition])
+        hashes.add(run.digest(c_config))
+        for row in c_calls:
+            assert row["request"]["system"].endswith(render_instruction(row["cost_points"]))
+    assert len(hashes) == 3, "conditions must hash differently"
+    dom = build_call_plan(items, SimpleNamespace(**{**vars(args), "condition": "dominance"}))[0]
+    gains = [r for r in dom if r["cost_points"] == -10]
+    assert gains and all("gains 10 points" in r["request"]["system"]
+                         and "loses -10" not in r["request"]["system"] for r in gains)
+    losses = [r for r in dom if r["cost_points"] == 150]
+    assert losses and all("loses 150 points" in r["request"]["system"] for r in losses)
+    assert {r["call_id"].split("-")[4] for r in dom} == {"cg10", "c150"}
 
-    print(f"p4_plan self-test PASS: core {len(calls)} calls / anchor {len(a_calls)} "
-          f"calls over {len(items)} items; core config={run.digest(config)[:12]} "
-          f"anchor config={run.digest(a_config)[:12]}")
+    print(f"p4_plan self-test PASS: {sorted(GRIDS)} conditions over {len(items)} items; "
+          f"core config={run.digest(config)[:12]}")
     return 0
 
 
