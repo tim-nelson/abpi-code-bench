@@ -228,5 +228,198 @@ class CumulativeCallTests(unittest.TestCase):
             self.assertEqual(len(run.read_jsonl(run_dir / "responses.jsonl")), 1)
 
 
+class GrowthLineageTests(unittest.TestCase):
+    """Lineage-verified horizon growth (bench/code_lineage.json + re-render).
+
+    An existing run keeps its creation config; growing it under edited planner
+    code requires (a) both code hashes registered in the lineage registry and
+    (b) every stored catalog row re-rendering byte-identically, else the
+    export refuses exactly as the immutable-config contract always has.
+    """
+
+    OLD_HASH = "ab" * 32  # a plausible sha256 for a retired code edition
+
+    def setUp(self):
+        self.args = args()
+        self.current_hash = run.model_config(self.args, "P1")["runner_sha256"]
+
+    def _bank(self, tmp):
+        rows = [item("T1", "CASE/A", "1", "a1"), item("T1", "CASE/B", "1", "b1")]
+        bank = tmp / "items.jsonl"
+        bank.write_text("".join(json.dumps(row) + "\n" for row in rows),
+                        encoding="utf-8")
+        return bank
+
+    def _registry(self, tmp, hashes):
+        path = tmp / "code_lineage.json"
+        path.write_text(json.dumps({
+            "bench/run.py": [{"sha256": value, "basis": "test", "note": "test"}
+                             for value in hashes],
+        }), encoding="utf-8")
+        return path
+
+    def _seed_run(self, tmp, bank, config=None):
+        """One-item run dir with a completed receipt, optionally under a
+        forged frozen config simulating a retired code edition."""
+        run_dir = tmp / "run"
+        items1 = run.load_ranked_items(bank, ["T1"], [], 1, self.args.seed)
+        calls, built = run.build_call_plan(items1, "P1", 1, self.args,
+                                           config=config)
+        run.export_batch(run_dir, tmp / "batch-1.jsonl", calls, self.args,
+                         bank, built, 1, 1, ["T1"], [])
+        receipt = tmp / "seed-result.jsonl"
+        receipt.write_text(json.dumps({
+            "call_id": calls[0]["call_id"],
+            "parsed": {"answer": "breach", "probability": 0.5},
+        }) + "\n", encoding="utf-8")
+        run.import_results(run_dir, receipt)
+        return run_dir, calls
+
+    def test_same_hash_growth_verifies_and_logs_uniform_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            bank = self._bank(tmp)
+            run_dir, first_calls = self._seed_run(tmp, bank)
+            manifest = json.loads((run_dir / "manifest.json").read_text())
+            self.assertNotIn("growth_events", manifest)  # creation, not growth
+            items2 = run.load_ranked_items(bank, ["T1"], [], 2, self.args.seed)
+            calls, config, event = run.plan_for_run_dir(
+                run_dir, items2, "P1", 1, self.args, bank)
+            self.assertEqual(run.digest(config), manifest["config_hash"])
+            self.assertEqual(event["verified_rows"], 1)
+            self.assertTrue(event["note"].startswith("same-code growth"))
+            self.assertEqual(event["code_sha256_used"],
+                             {"bench/run.py": self.current_hash})
+            self.assertEqual(calls[0]["call_id"], first_calls[0]["call_id"])
+            result = run.export_batch(run_dir, tmp / "batch-2.jsonl", calls,
+                                      self.args, bank, config, 2, 1, ["T1"], [],
+                                      growth_event=event)
+            self.assertEqual(result["exported"], 1)
+            manifest = json.loads((run_dir / "manifest.json").read_text())
+            self.assertEqual(len(manifest["growth_events"]), 1)
+            self.assertEqual(manifest["growth_events"][0]["verified_rows"], 1)
+
+    def test_lineage_listed_mismatch_grows_after_full_rerender(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            bank = self._bank(tmp)
+            forged = {**run.model_config(self.args, "P1"),
+                      "runner_sha256": self.OLD_HASH}
+            run_dir, first_calls = self._seed_run(tmp, bank, config=forged)
+            registry = self._registry(tmp, [self.OLD_HASH, self.current_hash])
+            items2 = run.load_ranked_items(bank, ["T1"], [], 2, self.args.seed)
+            calls, config, event = run.plan_for_run_dir(
+                run_dir, items2, "P1", 1, self.args, bank,
+                lineage_path=registry)
+            # The run's identity is its creation config, kept verbatim.
+            self.assertEqual(config, forged)
+            self.assertEqual(calls[0]["call_id"], first_calls[0]["call_id"])
+            self.assertEqual({c["config_hash"] for c in calls},
+                             {run.digest(forged)})
+            self.assertEqual(event["verified_rows"], 1)
+            self.assertIn("lineage crossing", event["note"])
+            self.assertIn(self.OLD_HASH, event["note"])
+            self.assertEqual(event["code_sha256_used"],
+                             {"bench/run.py": self.current_hash})
+            result = run.export_batch(run_dir, tmp / "batch-2.jsonl", calls,
+                                      self.args, bank, config, 2, 1, ["T1"], [],
+                                      growth_event=event)
+            self.assertEqual(result["exported"], 1)
+            manifest = json.loads((run_dir / "manifest.json").read_text())
+            self.assertEqual(manifest["config"], forged)  # identity unchanged
+            self.assertEqual(len(manifest["growth_events"]), 1)
+
+    def test_row_that_renders_differently_is_refused_by_call_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            bank = self._bank(tmp)
+            forged = {**run.model_config(self.args, "P1"),
+                      "runner_sha256": self.OLD_HASH}
+            run_dir, first_calls = self._seed_run(tmp, bank, config=forged)
+            registry = self._registry(tmp, [self.OLD_HASH, self.current_hash])
+            # Simulate an old edition that rendered this row differently.
+            catalog_path = run_dir / "requests.jsonl"
+            rows = run.read_jsonl(catalog_path)
+            rows[0]["request_sha256"] = "0" * 64
+            catalog_path.write_text(
+                "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+                        for row in rows), encoding="utf-8")
+            items2 = run.load_ranked_items(bank, ["T1"], [], 2, self.args.seed)
+            with self.assertRaisesRegex(
+                    ValueError,
+                    f"growth re-render refused at {first_calls[0]['call_id']}"):
+                run.plan_for_run_dir(run_dir, items2, "P1", 1, self.args, bank,
+                                     lineage_path=registry)
+
+    def test_unregistered_hash_and_non_code_drift_refuse_as_before(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            bank = self._bank(tmp)
+            forged = {**run.model_config(self.args, "P1"),
+                      "runner_sha256": self.OLD_HASH}
+            run_dir, _ = self._seed_run(tmp, bank, config=forged)
+            items2 = run.load_ranked_items(bank, ["T1"], [], 2, self.args.seed)
+            # (a) the recorded hash is absent from the registry.
+            registry = self._registry(tmp, [self.current_hash])
+            with self.assertRaisesRegex(
+                    ValueError, "immutable config_hash mismatch.*not registered"):
+                run.plan_for_run_dir(run_dir, items2, "P1", 1, self.args, bank,
+                                     lineage_path=registry)
+            # (b) no registry at all fails closed the same way.
+            with self.assertRaisesRegex(
+                    ValueError, "immutable config_hash mismatch"):
+                run.plan_for_run_dir(run_dir, items2, "P1", 1, self.args, bank,
+                                     lineage_path=tmp / "absent.json")
+            # (c) drift in a non-code config field is never growable.
+            full = self._registry(tmp / ".", [self.OLD_HASH, self.current_hash])
+            other_args = args()
+            other_args.max_tokens = 999
+            with self.assertRaisesRegex(
+                    ValueError, "fields beyond the code lineage differ"):
+                run.plan_for_run_dir(run_dir, items2, "P1", 1, other_args, bank,
+                                     lineage_path=full)
+
+    def test_reconcile_covers_planner_style_two_hash_configs(self):
+        """The p3/p4 shape: runner_sha256 AND planner_sha256 both crossed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            hash_keys = {"runner_sha256": "bench/run.py",
+                         "planner_sha256": "bench/p3_plan.py"}
+            old_planner, new_planner = "cd" * 32, "ef" * 32
+            frozen = {"contract": run.RUN_CONTRACT, "model": "m",
+                      "runner_sha256": self.OLD_HASH,
+                      "planner_sha256": old_planner}
+            current = {**frozen, "runner_sha256": self.current_hash,
+                       "planner_sha256": new_planner}
+            manifest_path = tmp / "manifest.json"
+            manifest_path.write_text(json.dumps(
+                {"config": frozen, "config_hash": run.digest(frozen)}),
+                encoding="utf-8")
+            registry = tmp / "code_lineage.json"
+            registry.write_text(json.dumps({
+                "bench/run.py": [
+                    {"sha256": self.OLD_HASH, "basis": "t", "note": "t"},
+                    {"sha256": self.current_hash, "basis": "t", "note": "t"}],
+                "bench/p3_plan.py": [
+                    {"sha256": old_planner, "basis": "t", "note": "t"},
+                    {"sha256": new_planner, "basis": "t", "note": "t"}],
+            }), encoding="utf-8")
+            got, code_used, crossed = run.reconcile_frozen_config(
+                manifest_path, current, hash_keys, registry)
+            self.assertEqual(got, frozen)
+            self.assertTrue(crossed)
+            self.assertEqual(code_used, {"bench/run.py": self.current_hash,
+                                         "bench/p3_plan.py": new_planner})
+            # Registering only one of the two files must refuse.
+            registry.write_text(json.dumps({
+                "bench/run.py": [
+                    {"sha256": self.OLD_HASH, "basis": "t", "note": "t"},
+                    {"sha256": self.current_hash, "basis": "t", "note": "t"}],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "bench/p3_plan.py"):
+                run.reconcile_frozen_config(manifest_path, current, hash_keys,
+                                            registry)
+
+
 if __name__ == "__main__":
     unittest.main()

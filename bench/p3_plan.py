@@ -5,6 +5,15 @@ the oriented probabilities.  This planner never calls a provider.  The
 ``migrate-receipts`` command can seed a fresh native-P3 run from the frozen
 P1+``repeated_stated_probability`` source run without copying or rewriting its
 provider bodies.
+
+A P3 run's config binds both ``runner_sha256`` (bench/run.py, the request
+builder) and ``planner_sha256`` (this file).  Growing an existing run's
+horizon after a reviewed edit to either file uses the shared lineage
+mechanism in run.py: both the recorded and the current hash must appear in
+``bench/code_lineage.json`` and every stored catalog row must re-render
+byte-identically before any new call is planned; the run keeps its creation
+config and config_hash, and the manifest gains an auditable ``growth_events``
+entry on every export against an existing catalog.
 """
 
 from __future__ import annotations
@@ -42,6 +51,12 @@ CONFIG_EQUIVALENCE_FIELDS = (
     "contract", "runner_sha256", "model", "max_tokens", "thinking",
     "rationale", "effort", "temperature", "seed",
 )
+# Config keys that pin code identity, mapped to their bench/code_lineage.json
+# registry keys (run.reconcile_frozen_config).
+LINEAGE_HASH_KEYS = {
+    "runner_sha256": "bench/run.py",
+    "planner_sha256": PLANNER_NAME,
+}
 
 
 def _utc_now() -> str:
@@ -77,10 +92,15 @@ def validate_k(k: int) -> None:
 
 
 def build_call_plan(items: list[dict], through_repeats: int,
-                    args: SimpleNamespace) -> tuple[list[dict], dict]:
-    """Stable native-P3 1..K rectangle using the unchanged P1 prompt body."""
+                    args: SimpleNamespace,
+                    config: dict | None = None) -> tuple[list[dict], dict]:
+    """Stable native-P3 1..K rectangle using the unchanged P1 prompt body.
+
+    ``config`` may be an existing run's frozen creation config (lineage
+    growth, run.plan_for_run_dir's contract): the plan then keeps that run's
+    identity while requests are rendered by the current code."""
     validate_k(through_repeats)
-    config = planner_config(args)
+    config = dict(config) if config is not None else planner_config(args)
     config_hash = run.digest(config)
     calls = []
     base = {
@@ -254,7 +274,29 @@ def export_batch(run_dir: pathlib.Path, output_path: pathlib.Path,
         items_path, tasks, splits, through_items, str(args.seed), catalog)
     if not items:
         raise ValueError("no items matched the requested task/split prefix")
-    calls, config = build_call_plan(items, through_repeats, args)
+    # Lineage growth (run.py's shared mechanism): an existing run keeps its
+    # creation config; the current code must be lineage-registered against it
+    # and the WHOLE stored catalog must re-render byte-identically first.
+    frozen_config, growth_event = None, None
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        current_config = planner_config(args)
+        frozen_config, code_used, crossed = run.reconcile_frozen_config(
+            manifest_path, current_config, LINEAGE_HASH_KEYS)
+        items_by_id = {row["item_id"]: row
+                       for row in run.load_items(items_path, [], [], 0)}
+        verified = run.verify_catalog_rerender(
+            catalog, items_by_id,
+            lambda row, item: run.request_params(
+                item, REQUEST_TEMPLATE_PROTOCOL, row["variant"], args))
+        growth_event = run.growth_event_value(
+            code_used, verified,
+            run.lineage_note(frozen_config, current_config, LINEAGE_HASH_KEYS,
+                             crossed)
+            + f"; export tasks={','.join(tasks) or 'all'} "
+              f"through_items={through_items} through_repeats={through_repeats}")
+    calls, config = build_call_plan(items, through_repeats, args,
+                                    config=frozen_config)
     existing = _validate_existing(run_dir, items_path, config, through_repeats, catalog)
     planned = {row["call_id"]: row for row in calls}
     if set(catalog) - set(planned):
@@ -271,6 +313,8 @@ def export_batch(run_dir: pathlib.Path, output_path: pathlib.Path,
     run.persist_call_catalog(run_dir, calls)
     manifest = _manifest_value(existing, items_path, config, calls,
                                through_items, through_repeats, tasks, splits)
+    if growth_event is not None:
+        manifest.setdefault("growth_events", []).append(growth_event)
     legacy_plan._write_manifest_atomic(run_dir, manifest)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("x", encoding="utf-8") as fh:

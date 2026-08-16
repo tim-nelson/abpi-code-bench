@@ -2210,3 +2210,62 @@ The exporter's reviewed lineage set now carries three hashes: `c2d603af…`
 (2026-08-15 afternoon through 2026-08-16, all currently active manifests),
 and the current post-rename hash. Any other runner drift still fails
 closed.
+
+## Code lineage registry (2026-08-16) — lineage-verified catalog growth
+
+Supersedes the ad-hoc hash lists in the two "Runner docstring lineage"
+entries above and the "grow only with byte-identical planner code" rule in
+`p4_plan.py`: planner-code lineage is now a first-class, tracked mechanism
+rather than a per-file allowlist.
+
+Mechanism (implemented in `run.py`, shared by `p3_plan.py` and
+`p4_plan.py`):
+
+1. `bench/code_lineage.json` is the reviewed registry of code editions.
+   Each entry names a file (`bench/run.py`, `bench/p3_plan.py`,
+   `bench/p4_plan.py`), a sha256, its basis (commit, dated uncommitted
+   intermediate, or `current`), a one-line note, and this register. Only
+   hashes actually bound by a run manifest, plus the current edition, are
+   listed. The registry enumerates every runner hash the two entries above
+   documented (`c2d603af…` uncommitted wave-1, `e35f47bb…` = e460022,
+   `60b6d075…` = afa699e) plus the current edition; `3758e756…` (= f45ba25)
+   is bound by no manifest and is deliberately absent. The p4 planner list
+   carries all six manifest-bound editions (69ae069 → 239b5b7).
+2. Growing an existing run directory's horizon under edited code
+   (`run.plan_for_run_dir`, and the equivalent paths in `p3_plan.py` /
+   `p4_plan.py` `export_batch`) requires: (a) the recorded and current
+   hashes of every crossed file are both registered, and the frozen config
+   differs from the current-code config in NOTHING but those hash fields;
+   (b) every stored catalog row — including rows outside the current
+   task/split filter — re-renders under the current code to byte-identical
+   `request_sha256` and `prompt_sha256`, else the export refuses naming the
+   offending `call_id`. The re-render proof is the load-bearing guarantee;
+   the registry only gates which hashes may attempt it.
+3. On success the run keeps its creation `config` and `config_hash`
+   verbatim — a run's identity is its creation config — and the manifest
+   gains an append-only `growth_events` entry `{utc, code_sha256_used,
+   verified_rows, note}`. Recording is uniform: every export against an
+   existing catalog logs an event and runs the proof, same-code and
+   lineage-crossing alike; creating a fresh run directory logs none.
+4. `export_site_data.py` now reads its accepted runner hashes from the same
+   registry (plus the current file hash), so the site gate and the growth
+   gate cannot drift apart. Unregistered hashes still fail closed
+   everywhere.
+
+Verified 2026-08-16 by growing every T3-bearing P1/P3 run (eleven models)
+from T3 N=100 to a planned N=200: all catalogs re-rendered byte-identically
+under the current editions before any new call was planned; the exports are
+offline batch files only (`batch-t3-n200.jsonl` in each run directory) and
+no provider call was made. Tests: `GrowthLineageTests` in
+`bench/test_run_foundation.py` (same-hash growth, lineage-listed growth,
+render-divergence refusal by call_id, unregistered-hash refusal, and the
+two-hash planner shape).
+
+Known, intended consequence while a growth is in flight: the site exporter
+refuses to regenerate for a registered active run whose directory has grown
+past its scored provenance (`scores.json` binds the manifest and
+requests-catalog bytes at scoring time, and coverage requires
+planned == catalog with zero pending). The site therefore stays fail-closed
+on the pre-growth scores until the N=200 receipts are imported and the run
+is rescored; this is the gate doing its job, not a defect. Rescore each
+grown run after import to re-bind provenance and clear the gate.

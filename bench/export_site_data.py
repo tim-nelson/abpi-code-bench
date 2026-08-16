@@ -605,17 +605,18 @@ def require_complete_active_run(run_id, run_dir, current_items_path=None):
         defects.append(
             f"score K={scores.get('k')} but manifest K={manifest.get('through_repeats')}")
     current_runner_hash = sha256_of(BENCH / "run.py")
-    # Reviewed runner lineage. Runs stay bound to the runner that planned
-    # them; a hash is admitted here only when the diff to the current runner
-    # is reviewed as request-identical. 2026-08-15: docstring-only edit
-    # (P3/P4 protocol naming); 2026-08-16: docstring-only edit (P4 renamed
-    # SP; P4 reserved) — no request-building change either time; register
-    # entries in bench/review/DEFECTS.md ("runner docstring lineage").
-    accepted_runner_hashes = {
-        current_runner_hash,
-        "c2d603af374afba7dad5e226259d63061a7362732774201638617804799f90ba",
-        "e35f47bb8ab4a485efde85de7dcd65ef2a1483f7dcc3906302a59f11358ebe9d",
-    }
+    # Reviewed runner lineage, sourced from the tracked registry that also
+    # gates run-catalog growth (bench/code_lineage.json; mechanism and
+    # register entry: bench/review/DEFECTS.md "Code lineage registry
+    # (2026-08-16)", superseding the ad-hoc "runner docstring lineage"
+    # notes). Runs stay bound to the runner that planned them; a hash is
+    # admitted to the registry only with a reviewed request-identical diff,
+    # and growth additionally requires the full-catalog re-render proof.
+    # Anything unregistered fails closed here exactly as before.
+    lineage_registry = json.loads(
+        (BENCH / "code_lineage.json").read_text(encoding="utf-8"))
+    accepted_runner_hashes = {current_runner_hash} | {
+        entry["sha256"] for entry in lineage_registry["bench/run.py"]}
     recorded_runner_hash = (manifest.get("config") or {}).get("runner_sha256")
     if recorded_runner_hash not in accepted_runner_hashes:
         defects.append(

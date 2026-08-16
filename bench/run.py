@@ -46,6 +46,19 @@ Batch interchange is intentionally provider-neutral. Each exported JSONL row
 contains a stable ``custom_id``/``call_id`` and the canonical request object.
 Each imported row must contain that ID plus a normalized ``parsed`` object (or
 ``output`` alias), and may carry a raw ``response`` and/or ``error`` receipt.
+
+A run directory's identity is its creation config (``config_hash``), which
+pins the sha256 of the planner code that created it. Growing a catalog's item
+or repeat horizon after a reviewed code edit is a first-class operation, not a
+workaround: the old and new code hashes must both be registered in
+``bench/code_lineage.json`` (the reviewed lineage registry), and every stored
+catalog row must re-render byte-identically -- same ``request_sha256`` and
+``prompt_sha256`` -- under the exporting code before a single new call is
+planned. The re-render proof is the load-bearing guarantee; the registry only
+gates which hashes are eligible to attempt it. Every export against an
+existing catalog (same-hash or lineage-crossing alike) runs the proof and
+appends an auditable ``growth_events`` entry to the manifest; the run keeps
+its original config and config_hash throughout.
 """
 
 import argparse
@@ -620,9 +633,15 @@ def model_config(args, protocol):
     }
 
 
-def build_call_plan(items, protocol, through_repeats, args):
-    """Build request-bearing call records, with identities stable under top-up."""
-    config = model_config(args, protocol)
+def build_call_plan(items, protocol, through_repeats, args, config=None):
+    """Build request-bearing call records, with identities stable under top-up.
+
+    ``config`` may be an existing run's frozen creation config (see
+    :func:`plan_for_run_dir`): planning then keeps that run's identity while
+    requests are rendered by the current code. When omitted, the plan carries
+    the current-code config.
+    """
+    config = dict(config) if config is not None else model_config(args, protocol)
     config_hash = digest(config)
     calls = []
     for item in items:
@@ -735,8 +754,173 @@ def append_jsonl(path, rows):
         fh.flush()
 
 
+# --- Code-lineage growth: registry gate + behavioral-identity proof --------
+#
+# bench/code_lineage.json is the reviewed registry of planner-code editions.
+# It exists so that a documented, request-identical code edit does not strand
+# every active run directory behind an immutable config_hash: growth across a
+# registered hash pair is permitted if and only if the whole existing catalog
+# re-renders byte-identically under the exporting code. Anything else refuses
+# exactly as before. p3_plan.py and p4_plan.py share this machinery.
+
+CODE_LINEAGE_PATH = BENCH / "code_lineage.json"
+# Maps a config key that pins code identity to its registry file key. run.py
+# runs bind only their own bytes; planners add their planner_sha256 key.
+RUNNER_LINEAGE_KEYS = {"runner_sha256": "bench/run.py"}
+
+
+def load_code_lineage(path=None):
+    """Reviewed {file: set-of-sha256} registry; underscore keys are metadata."""
+    path = pathlib.Path(path) if path else CODE_LINEAGE_PATH
+    registry = json.loads(path.read_text(encoding="utf-8"))
+    out = {}
+    for file_key, entries in registry.items():
+        if file_key.startswith("_"):
+            continue
+        hashes = []
+        for entry in entries:
+            value = entry.get("sha256")
+            if not (isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)):
+                raise ValueError(f"{path}: {file_key}: invalid sha256 {value!r}")
+            if not entry.get("basis") or not entry.get("note"):
+                raise ValueError(f"{path}: {file_key}: {value[:12]} lacks basis/note")
+            hashes.append(value)
+        if len(hashes) != len(set(hashes)):
+            raise ValueError(f"{path}: {file_key}: duplicate sha256 entries")
+        out[file_key] = set(hashes)
+    return out
+
+
+def reconcile_frozen_config(manifest_path, current_config, hash_keys,
+                            lineage_path=None):
+    """Admit an existing run for growth planning under its creation config.
+
+    Returns ``(frozen_config, code_sha256_used, crossed)``. The frozen config
+    is what planning must proceed with -- the run's identity never changes.
+    ``code_sha256_used`` records, per registry file, the hash of the code
+    actually performing this export. A config difference in anything other
+    than the lineage-tracked code-hash keys, or a hash pair not registered in
+    bench/code_lineage.json, refuses with the same immutable-mismatch error
+    as before. The caller must still prove behavioral identity with
+    :func:`verify_catalog_rerender` before trusting the admission.
+    """
+    manifest_path = pathlib.Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    frozen = manifest.get("config")
+    if not isinstance(frozen, dict) or digest(frozen) != manifest.get("config_hash"):
+        raise ValueError(f"{manifest_path}: config_hash does not bind config")
+    code_used = {file_key: current_config.get(key)
+                 for key, file_key in hash_keys.items()}
+    if digest(current_config) == manifest["config_hash"]:
+        return frozen, code_used, False
+    diffs = {key for key in set(frozen) | set(current_config)
+             if frozen.get(key) != current_config.get(key)}
+    if diffs - set(hash_keys):
+        raise ValueError(f"{manifest_path}: immutable config_hash mismatch; "
+                         f"use a new run directory (fields beyond the code "
+                         f"lineage differ: {', '.join(sorted(diffs - set(hash_keys)))})")
+    try:
+        lineage = load_code_lineage(lineage_path)
+    except FileNotFoundError as exc:
+        raise ValueError(f"{manifest_path}: immutable config_hash mismatch; "
+                         f"use a new run directory (no code lineage registry "
+                         f"at {lineage_path or CODE_LINEAGE_PATH})") from exc
+    for key in sorted(diffs):
+        file_key = hash_keys[key]
+        known = lineage.get(file_key, set())
+        for role, value in (("recorded", frozen.get(key)),
+                            ("current", current_config.get(key))):
+            if value not in known:
+                raise ValueError(
+                    f"{manifest_path}: immutable config_hash mismatch; use a "
+                    f"new run directory ({file_key} {role} sha256 {value} is "
+                    f"not registered in bench/code_lineage.json)")
+    return frozen, code_used, True
+
+
+def verify_catalog_rerender(catalog, items_by_id, render_request):
+    """The load-bearing growth proof: every stored catalog row must re-render
+    byte-identically (request_sha256 AND prompt_sha256) under the exporting
+    code. Any mismatch refuses, naming the offending call_id. Returns the
+    number of verified rows."""
+    for call_id in sorted(catalog):
+        row = catalog[call_id]
+        item = items_by_id.get(row.get("item_id"))
+        if item is None:
+            raise ValueError(f"growth re-render refused at {call_id}: item "
+                             f"{row.get('item_id')!r} is not in the item bank")
+        request = render_request(row, item)
+        prompt_hash = digest({"system": request["system"],
+                              "messages": request["messages"]})
+        request_hash = digest(request)
+        if (request_hash != row.get("request_sha256")
+                or prompt_hash != row.get("prompt_sha256")):
+            raise ValueError(
+                f"growth re-render refused at {call_id}: stored "
+                f"request_sha256={row.get('request_sha256')} "
+                f"prompt_sha256={row.get('prompt_sha256')} but current code "
+                f"renders {request_hash} / {prompt_hash}")
+    return len(catalog)
+
+
+def lineage_note(frozen_config, current_config, hash_keys, crossed):
+    """One audit phrase shared by every planner's growth events."""
+    if not crossed:
+        return "same-code growth"
+    return "lineage crossing " + " ".join(
+        f"{file_key} {frozen_config.get(key)} -> {current_config.get(key)}"
+        for key, file_key in sorted(hash_keys.items())
+        if frozen_config.get(key) != current_config.get(key))
+
+
+def growth_event_value(code_sha256_used, verified_rows, note):
+    """Uniform auditable manifest event for any export against an existing
+    catalog, whether or not a lineage hash was crossed."""
+    return {
+        "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "code_sha256_used": dict(sorted(code_sha256_used.items())),
+        "verified_rows": int(verified_rows),
+        "note": note,
+    }
+
+
+def plan_for_run_dir(run_dir, items, protocol, through_repeats, args,
+                     items_path, note="", lineage_path=None):
+    """Build the call plan for a possibly pre-existing run directory.
+
+    A fresh directory plans under the current-code config. An existing
+    directory plans under its frozen creation config: the current code must be
+    the creation code or a bench/code_lineage.json-registered successor, and
+    EVERY stored catalog row (including rows outside the current task/split
+    filter) must re-render byte-identically first. Returns
+    ``(calls, config, growth_event)``; growth_event is None only for a fresh
+    directory.
+    """
+    run_dir = pathlib.Path(run_dir)
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        if read_call_catalog(run_dir):
+            raise ValueError(f"{run_dir}: requests catalog exists without manifest")
+        calls, config = build_call_plan(items, protocol, through_repeats, args)
+        return calls, config, None
+    current_config = model_config(args, protocol)
+    frozen, code_used, crossed = reconcile_frozen_config(
+        manifest_path, current_config, RUNNER_LINEAGE_KEYS, lineage_path)
+    catalog = read_call_catalog(run_dir)
+    items_by_id = {row["item_id"]: row for row in load_items(items_path, [], [], 0)}
+    verified = verify_catalog_rerender(
+        catalog, items_by_id,
+        lambda row, item: request_params(item, row["protocol"], row["variant"], args))
+    calls, config = build_call_plan(items, protocol, through_repeats, args,
+                                    config=frozen)
+    detail = lineage_note(frozen, current_config, RUNNER_LINEAGE_KEYS, crossed)
+    event = growth_event_value(code_used, verified,
+                               f"{detail}; {note}" if note else detail)
+    return calls, config, event
+
+
 def _write_manifest(run_dir, args, items_path, config, calls, through_items,
-                    through_repeats, tasks, splits):
+                    through_repeats, tasks, splits, growth_event=None):
     run_dir = pathlib.Path(run_dir)
     path = run_dir / "manifest.json"
     config_hash = digest(config)
@@ -810,6 +994,8 @@ def _write_manifest(run_dir, args, items_path, config, calls, through_items,
                                 if config.get("temperature") is not None else [])
     manifest["provider"] = "offline-export"
     manifest["updated_utc"] = now
+    if growth_event is not None:
+        manifest.setdefault("growth_events", []).append(growth_event)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(path)
@@ -853,7 +1039,8 @@ def read_retry_ids(path):
 
 
 def export_batch(run_dir, output_path, calls, args, items_path, config,
-                 through_items, through_repeats, tasks, splits, retry_ids_path=None):
+                 through_items, through_repeats, tasks, splits, retry_ids_path=None,
+                 growth_event=None):
     """Persist the plan and export only calls lacking a completed receipt."""
     run_dir = pathlib.Path(run_dir)
     output_path = pathlib.Path(output_path)
@@ -867,7 +1054,7 @@ def export_batch(run_dir, output_path, calls, args, items_path, config,
                              ", ".join(sorted(unknown)[:5]))
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_manifest(run_dir, args, items_path, config, calls, through_items,
-                    through_repeats, tasks, splits)
+                    through_repeats, tasks, splits, growth_event)
     persist_call_catalog(run_dir, calls)
     completed = read_completed(run_dir)
     missing = [call for call in calls
@@ -1128,25 +1315,35 @@ def main(argv=None):
     items = load_ranked_items(args.items, tasks, splits, through_items, args.seed)
     if not items:
         raise SystemExit(f"no items matched (items={args.items} tasks={tasks} splits={splits})")
-    try:
-        calls, config = build_call_plan(items, args.protocol, through_repeats, args)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
 
     if args.export_batch:
         if not args.run_dir:
             raise SystemExit("--export-batch requires --run-dir")
         try:
+            note = (f"export tasks={','.join(tasks) or 'all'} "
+                    f"through_items={through_items} through_repeats={through_repeats}")
+            calls, config, growth_event = plan_for_run_dir(
+                args.run_dir, items, args.protocol, through_repeats, args,
+                args.items, note=note)
             result = export_batch(args.run_dir, args.export_batch, calls, args,
                                   args.items, config, through_items,
                                   through_repeats, tasks, splits,
-                                  args.retry_ids or None)
+                                  args.retry_ids or None,
+                                  growth_event=growth_event)
         except (ValueError, OSError) as exc:
             raise SystemExit(str(exc)) from exc
         print(f"planned   : {result['planned']} call(s)")
         print(f"completed : {result['completed']} call(s) already terminal")
         print(f"exported  : {result['exported']} missing call(s) -> {result['path']}")
+        if growth_event is not None:
+            print(f"verified  : {growth_event['verified_rows']} existing catalog "
+                  f"row(s) re-rendered byte-identically ({growth_event['note']})")
         return 0
+
+    try:
+        calls, config = build_call_plan(items, args.protocol, through_repeats, args)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     rendered = set()
     for call in calls:

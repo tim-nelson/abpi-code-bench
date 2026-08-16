@@ -7,10 +7,14 @@ grid sweeps c so the pattern of answer/refer decisions brackets a per-item
 implied confidence without ever asking for a probability.  Full protocol
 specification: bench/P4_SPEC.md.
 
-This planner never calls a provider and never edits bench/run.py (which is
-byte-frozen while runs are active); it imports run.py's request builder and
-replaces exactly the P1 instruction suffix and the output schema, refusing
-loudly if run.py's P1 instruction ever changes underneath it.
+This planner never calls a provider and never edits bench/run.py; it imports
+run.py's request builder and replaces exactly the P1 instruction suffix and
+the output schema, refusing loudly if run.py's P1 instruction ever changes
+underneath it.  Planner-code editions are governed by the shared lineage
+mechanism (bench/code_lineage.json + run.reconcile_frozen_config): a run
+created under an earlier registered edition of run.py or this file can grow
+its horizon after every stored catalog row re-renders byte-identically under
+the current code; unregistered drift still refuses.
 """
 
 from __future__ import annotations
@@ -40,6 +44,12 @@ AGGREGATION = "cost_sweep"
 REQUEST_TEMPLATE_PROTOCOL = "P1"
 PLANNER_NAME = "bench/p4_plan.py"
 ACTIVE_TASKS = ("T1", "T2", "T3")
+# Config keys that pin code identity, mapped to their bench/code_lineage.json
+# registry keys (run.reconcile_frozen_config).
+LINEAGE_HASH_KEYS = {
+    "runner_sha256": "bench/run.py",
+    "planner_sha256": PLANNER_NAME,
+}
 
 # Grids are part of the protocol, not CLI knobs: each named condition is a
 # code change with its own config hash (P4_SPEC.md 2, 6).  "core" thresholds
@@ -166,9 +176,12 @@ def planner_config(args: SimpleNamespace) -> dict:
         "request_template_protocol": REQUEST_TEMPLATE_PROTOCOL,
         "instruction_template": P4_INSTRUCTION_TEMPLATE,
         "gain_instruction_template": P4_GAIN_TEMPLATE,
-        # planner_sha256 above binds this file's bytes into the hash, so a
-        # planner edit ends a run's extension lineage: grow a run only with
-        # byte-identical planner code, else start a new run directory.
+        # planner_sha256 above binds this file's bytes into the hash. A
+        # planner edit therefore cannot silently reuse a run directory; growth
+        # across a reviewed edit goes through bench/code_lineage.json plus the
+        # full-catalog re-render proof (run.reconcile_frozen_config /
+        # run.verify_catalog_rerender), and anything unregistered still
+        # requires a new run directory.
         "condition": args.condition,
         "cost_grid": list(CONDITIONS[args.condition]["grid"]),
         "cost_x": CONDITIONS[args.condition]["x"],
@@ -219,12 +232,17 @@ def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict
     return request
 
 
-def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict], dict]:
-    """Stable (item x cost-level) rectangle over the unchanged P1 user body."""
+def build_call_plan(items: list[dict], args: SimpleNamespace,
+                    config: dict | None = None) -> tuple[list[dict], dict]:
+    """Stable (item x cost-level) rectangle over the unchanged P1 user body.
+
+    ``config`` may be an existing run's frozen creation config (lineage
+    growth, run.plan_for_run_dir's contract): the plan then keeps that run's
+    identity while requests are rendered by the current code."""
     cond = CONDITIONS[args.condition]
     grid = cond["grid"]
     stated = bool(cond.get("stated"))
-    config = planner_config(args)
+    config = dict(config) if config is not None else planner_config(args)
     config_hash = run.digest(config)
     calls = []
     base = {
@@ -404,7 +422,28 @@ def export_batch(run_dir: pathlib.Path, output_path: pathlib.Path,
         items_path, tasks, splits, through_items, str(args.seed), catalog)
     if not items:
         raise ValueError("no items matched the requested task/split prefix")
-    calls, config = build_call_plan(items, args)
+    # Lineage growth (run.py's shared mechanism): an existing run keeps its
+    # creation config; the current code must be lineage-registered against it
+    # and the WHOLE stored catalog must re-render byte-identically first.
+    frozen_config, growth_event = None, None
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        current_config = planner_config(args)
+        frozen_config, code_used, crossed = run.reconcile_frozen_config(
+            manifest_path, current_config, LINEAGE_HASH_KEYS)
+        items_by_id = {row["item_id"]: row
+                       for row in run.load_items(items_path, [], [], 0)}
+        verified = run.verify_catalog_rerender(
+            catalog, items_by_id,
+            lambda row, item: p4_request(item, row["variant"], args,
+                                         row["cost_points"]))
+        growth_event = run.growth_event_value(
+            code_used, verified,
+            run.lineage_note(frozen_config, current_config, LINEAGE_HASH_KEYS,
+                             crossed)
+            + f"; export tasks={','.join(tasks) or 'all'} "
+              f"through_items={through_items} condition={args.condition}")
+    calls, config = build_call_plan(items, args, config=frozen_config)
     existing = _validate_existing(run_dir, items_path, config, catalog)
     planned = {row["call_id"]: row for row in calls}
     if set(catalog) - set(planned):
@@ -421,6 +460,8 @@ def export_batch(run_dir: pathlib.Path, output_path: pathlib.Path,
     run.persist_call_catalog(run_dir, calls)
     manifest = _manifest_value(existing, items_path, config, calls,
                                through_items, tasks, splits)
+    if growth_event is not None:
+        manifest.setdefault("growth_events", []).append(growth_event)
     legacy_plan._write_manifest_atomic(run_dir, manifest)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("x", encoding="utf-8") as fh:

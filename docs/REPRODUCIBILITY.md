@@ -129,3 +129,17 @@ rebuilding the item bank. Each fresh run records the exact item-bank hash,
 model/config hash, prompt/request hashes, stable call IDs and cumulative ranks.
 Only results registered in `bench/active_results.json` are active; historical
 run directories are excluded by default.
+
+Run horizons are nested checkpoints, not independent experiments: growing a
+run from `--through-items 100` to `200` extends the same deterministic
+per-task ranking, keeps every existing call ID, and exports only calls that
+lack a completed receipt. A run's identity is its creation config
+(`config_hash`), which pins the sha256 of the planner code that created it.
+Growth after a reviewed code edit is lineage-verified: the old and new code
+hashes must both appear in the tracked registry `bench/code_lineage.json`,
+and every stored catalog row must re-render byte-identically (matching
+`request_sha256` and `prompt_sha256`) under the exporting code before any new
+call is planned. The run keeps its creation config unchanged, and each such
+export appends an auditable `growth_events` entry to the run manifest.
+Unregistered code drift, or any row that renders differently, refuses the
+growth and requires a new run directory.

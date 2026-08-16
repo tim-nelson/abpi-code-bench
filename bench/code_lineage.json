@@ -1,0 +1,87 @@
+{
+ "_purpose": "Reviewed planner-code lineage registry (see run.reconcile_frozen_config and bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'). Each entry is one reviewed edition of a file whose sha256 an active run manifest binds. Growth of an existing run across two editions is eligible only when BOTH hashes are listed here, and is trusted only after every stored catalog row re-renders byte-identically under the exporting code. Only hashes actually bound by a run manifest, plus the current edition, belong here; unlisted drift fails closed.",
+ "bench/run.py": [
+  {
+   "sha256": "327209da4e0c352f526cc825d944f5f1f68dcc1daf715e0f861a121841447a3a",
+   "basis": "current",
+   "note": "Lineage-verified growth mechanism added (code_lineage registry, full-catalog re-render proof, growth_events); request rendering unchanged.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "60b6d075093493bf4e7555ebd3791e102ac8cd4979bae4331af27ae5333628ac",
+   "basis": "commit afa699e",
+   "note": "Docstring-only edit: offline selective prediction renamed SP, P4 label reserved; bound by all P4 runs, grok-4.6 P3 and the order2 probe.",
+   "defects_ref": "bench/review/DEFECTS.md 'Runner docstring lineage (2026-08-16)'"
+  },
+  {
+   "sha256": "e35f47bb8ab4a485efde85de7dcd65ef2a1483f7dcc3906302a59f11358ebe9d",
+   "basis": "commit e460022",
+   "note": "Docstring-only edit correcting the superseded protocol numbering; bound by opus/sol/deepseek/gemini/glm/grok/kimi wave-2 runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Runner docstring lineage (2026-08-15)'"
+  },
+  {
+   "sha256": "c2d603af374afba7dad5e226259d63061a7362732774201638617804799f90ba",
+   "basis": "uncommitted intermediate (wave-1 2026-08-15)",
+   "note": "Pre-docstring-edit working-tree edition that planned the wave-1 sonnet/haiku/luna/terra runs; never committed.",
+   "defects_ref": "bench/review/DEFECTS.md 'Runner docstring lineage (2026-08-15)'"
+  }
+ ],
+ "bench/p3_plan.py": [
+  {
+   "sha256": "910de3a8b0a5a36690136ee6f6075765151ed0480035461d01c2bf24372201ca",
+   "basis": "current",
+   "note": "Lineage-verified growth mechanism wired into export_batch; request rendering unchanged.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "10fdd41fc7a12c8bddceb76025828907206ffc8774548073843c3bed1cb24722",
+   "basis": "commit e460022",
+   "note": "Native P3 planner edition that created every active P3 run manifest.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  }
+ ],
+ "bench/p4_plan.py": [
+  {
+   "sha256": "c4c887d1d42ead7a9a94049e374f96b4b89bd1ac14377ea368307a425448a66b",
+   "basis": "current",
+   "note": "Lineage-verified growth mechanism wired into export_batch; request rendering unchanged.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "b6895e7e245a36fc4d33236431e66dbc40150bb2661785f5434f407b36bcd3a8",
+   "basis": "commit 239b5b7",
+   "note": "anchor_instructed condition added; bound by anchor-instructed and p4-t2/p4-t3 runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "ed1c64c952ef8e8c608a32ee9669d423cd4fb14e856989835eace7493b198f11",
+   "basis": "commit 5460cea",
+   "note": "anchor_stated condition added; bound by anchor-stated runs and luna/terra/grok p4 core runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "dbf9f7d1eb21fbe5e0a2bff9945cd5bb1eb9dad24bafc4ea0e098a330fec3f14",
+   "basis": "commit 605a57e",
+   "note": "stakes conditions added; bound by most anchor/dominance/stakes runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "f00abb36d3248fceae6a4afa19f6f17b608503303f194caced62ee1b9aff87ab",
+   "basis": "commit d30f062",
+   "note": "dominance condition added; bound by sonnet/sol dominance runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "4301219cc5289e0b57a0f11d083b566d5db3e259f2211941fd01c8e5c5c07abb",
+   "basis": "commit 8e3923e",
+   "note": "anchor condition added after the pilot; bound by sonnet/sol anchor runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  },
+  {
+   "sha256": "a29f03bdedc7655304222898934e58a3a4d93723c7fe5dd93fec9221383358c4",
+   "basis": "commit 69ae069",
+   "note": "Wording review; bound by the original sonnet/sol p4 core runs.",
+   "defects_ref": "bench/review/DEFECTS.md 'Code lineage registry (2026-08-16)'"
+  }
+ ]
+}
