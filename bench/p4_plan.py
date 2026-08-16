@@ -41,11 +41,20 @@ REQUEST_TEMPLATE_PROTOCOL = "P1"
 PLANNER_NAME = "bench/p4_plan.py"
 ACTIVE_TASKS = ("T1", "T2", "T3")
 
-# The grid is part of the protocol, not a CLI knob: rational thresholds
+# Grids are part of the protocol, not CLI knobs: each named condition is a
+# code change with its own config hash (P4_SPEC.md 2, 6).  "core" thresholds
 # 1 - c/X in {.95, .85, .75, .65, .55} bracket where every evaluated model's
-# stated confidences cluster (P4_SPEC.md 2).  Changing it is a new protocol
-# condition and must arrive as a code change with its own config hash.
-COST_GRID = (5, 15, 25, 35, 45)
+# stated confidences cluster.  "anchor" pins the near-degenerate ends
+# (thresholds .99 and .01): a payoff-sensitive agent refers almost everything
+# at c=1 and almost nothing at c=99, so a flat curve across the anchors is
+# incentive-insensitivity itself and licenses no implied-confidence reading
+# from the core grid (2026-08-16 pilot: Sonnet flat 3-5% on core while Sol
+# fell 34%->0%, which is what this condition disambiguates).
+GRIDS = {
+    "core": (5, 15, 25, 35, 45),
+    "anchor": (1, 99),
+}
+COST_GRID = GRIDS["core"]
 COST_X = 100
 
 P1_INSTRUCTION = run.PROTOCOL_INSTRUCTION["P1"]
@@ -83,7 +92,11 @@ def planner_config(args: SimpleNamespace) -> dict:
         "aggregation": AGGREGATION,
         "request_template_protocol": REQUEST_TEMPLATE_PROTOCOL,
         "instruction_template": P4_INSTRUCTION_TEMPLATE,
-        "cost_grid": list(COST_GRID),
+        # planner_sha256 above binds this file's bytes into the hash, so a
+        # planner edit ends a run's extension lineage: grow a run only with
+        # byte-identical planner code, else start a new run directory.
+        "condition": args.condition,
+        "cost_grid": list(GRIDS[args.condition]),
         "cost_x": COST_X,
         "model": args.model,
         "max_tokens": args.max_tokens,
@@ -109,8 +122,9 @@ def p4_output_schema(item: dict) -> dict:
 
 
 def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict:
-    if c not in COST_GRID:
-        raise ValueError(f"cost level {c!r} outside the P4 grid {COST_GRID}")
+    grid = GRIDS[args.condition]
+    if c not in grid:
+        raise ValueError(f"cost level {c!r} outside the {args.condition!r} grid {grid}")
     request = run.request_params(item, REQUEST_TEMPLATE_PROTOCOL, variant, args)
     system = request["system"]
     if not system.endswith(P1_INSTRUCTION):
@@ -125,6 +139,7 @@ def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict
 
 def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict], dict]:
     """Stable (item x cost-level) rectangle over the unchanged P1 user body."""
+    grid = GRIDS[args.condition]
     config = planner_config(args)
     config_hash = run.digest(config)
     calls = []
@@ -140,7 +155,7 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
         safe_task = re.sub(r"[^A-Za-z0-9]+", "-", item["task"]).strip("-").lower()
         p1_messages = run.request_params(
             item, REQUEST_TEMPLATE_PROTOCOL, base, args)["messages"]
-        for level, c in enumerate(COST_GRID, start=1):
+        for level, c in enumerate(grid, start=1):
             request = p4_request(item, base, args, c)
             if request["messages"] != p1_messages:
                 raise AssertionError(
@@ -194,8 +209,8 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
     for call in calls:
         by_item.setdefault(call["item_id"], []).append(call)
     for item_id, rows in by_item.items():
-        if sorted(row["cost_points"] for row in rows) != sorted(COST_GRID):
-            raise ValueError(f"{item_id}: P4 plan is not exactly the cost grid {COST_GRID}")
+        if sorted(row["cost_points"] for row in rows) != sorted(grid):
+            raise ValueError(f"{item_id}: P4 plan is not exactly the cost grid {grid}")
         if len({run.canonical_json(row["request"]["messages"]) for row in rows}) != 1:
             raise ValueError(f"{item_id}: P4 user messages are not byte-identical")
     return calls, config
@@ -238,9 +253,10 @@ def _manifest_value(existing: dict | None, items_path: pathlib.Path, config: dic
         "through_items": max(horizons.values(), default=0),
         "requested_through_items": int(through_items),
         # repeat bookkeeping keeps the shared catalog shape; for P4 a "repeat"
-        # is a cost level and the grid is fixed, so K == len(COST_GRID).
-        "through_repeats": len(COST_GRID), "k": len(COST_GRID),
-        "cost_grid": list(COST_GRID), "cost_x": COST_X,
+        # is a cost level and the grid is fixed per condition, so K == len(grid).
+        "through_repeats": len(config["cost_grid"]), "k": len(config["cost_grid"]),
+        "condition": config["condition"],
+        "cost_grid": list(config["cost_grid"]), "cost_x": COST_X,
         "n_items_planned": len({row["item_id"] for row in calls}),
         "n_calls_planned": len(calls),
         "n_items": len({row["item_id"] for row in calls}), "n_calls": len(calls),
@@ -327,7 +343,7 @@ def export_batch(run_dir: pathlib.Path, output_path: pathlib.Path,
         os.fsync(fh.fileno())
     return {"planned": len(calls), "completed": len(set(completed) & set(planned)),
             "exported": len(missing), "items": len({row["item_id"] for row in calls}),
-            "levels": len(COST_GRID), "config_hash": run.digest(config),
+            "levels": len(config["cost_grid"]), "config_hash": run.digest(config),
             "path": str(output_path)}
 
 
@@ -410,7 +426,8 @@ def import_results(run_dir: pathlib.Path, results_path: pathlib.Path) -> dict:
 
 def self_test(items_path: pathlib.Path) -> int:
     args = SimpleNamespace(model="self-test-model", max_tokens=4096,
-                           thinking="unset", effort="medium", seed="pmcpa-bench")
+                           thinking="unset", effort="medium", seed="pmcpa-bench",
+                           condition="core")
     items = run.load_ranked_items(items_path, ["T1"], [], 2, args.seed)
     assert len(items) == 2, "self-test needs the first two T1 ranks"
 
@@ -454,14 +471,27 @@ def self_test(items_path: pathlib.Path) -> int:
         else:
             raise AssertionError(f"parsed {bad!r} should have been rejected")
 
-    print(f"p4_plan self-test PASS: {len(calls)} calls over {len(items)} items, "
-          f"grid {COST_GRID}, config={run.digest(config)[:12]}")
+    anchor_args = SimpleNamespace(**{**vars(args), "condition": "anchor"})
+    a_calls, a_config = build_call_plan(items, anchor_args)
+    assert len(a_calls) == 2 * len(GRIDS["anchor"])
+    assert sorted({c["cost_points"] for c in a_calls}) == sorted(GRIDS["anchor"])
+    assert {c["call_id"].split("-")[4] for c in a_calls} == {"c01", "c99"}
+    assert run.digest(a_config) != run.digest(config), \
+        "anchor condition must hash differently from core"
+    for row in a_calls:
+        wanted = P4_INSTRUCTION_TEMPLATE.format(x=COST_X, c=row["cost_points"])
+        assert row["request"]["system"].endswith(wanted)
+
+    print(f"p4_plan self-test PASS: core {len(calls)} calls / anchor {len(a_calls)} "
+          f"calls over {len(items)} items; core config={run.digest(config)[:12]} "
+          f"anchor config={run.digest(a_config)[:12]}")
     return 0
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--items", type=pathlib.Path, default=DEFAULT_ITEMS)
+    parser.add_argument("--condition", choices=sorted(GRIDS), default="core")
     parser.add_argument("--tasks", default="T1")
     parser.add_argument("--splits", default="")
     parser.add_argument("--through-items", type=int)
@@ -509,7 +539,7 @@ def main(argv: list[str] | None = None) -> int:
                                    args.through_items, args.seed)
     calls, config = build_call_plan(ranked, args)
     print(f"DRY RUN: {len(calls)} P4 calls over {len(ranked)} items "
-          f"(grid {COST_GRID}, X={COST_X})")
+          f"(condition {args.condition}, grid {GRIDS[args.condition]}, X={COST_X})")
     print(f"aggregation={AGGREGATION} config={run.digest(config)}")
     print("No network call was made and nothing was written.")
     return 0
