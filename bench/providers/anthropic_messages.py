@@ -41,6 +41,8 @@ MESSAGE_ENDPOINT = "/v1/messages"
 BATCH_ENDPOINT = "/v1/messages/batches"
 MAX_OUTPUT_TOKENS = 4096
 P3_AGGREGATION = "linear_probability_pool"
+P4_AGGREGATION = "cost_sweep"
+P4_DECISIONS = ["answer", "refer"]
 
 SONNET_MODEL = "claude-sonnet-5"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
@@ -230,10 +232,12 @@ def validate_canonical_row(row: dict[str, Any]) -> None:
     if model not in MODEL_CONFIGS:
         raise AdapterError(f"{call_id}: unsupported exact Anthropic model {model!r}")
     protocol = row.get("protocol")
-    if protocol not in ("P1", "P2", "P3"):
+    if protocol not in ("P1", "P2", "P3", "P4"):
         raise AdapterError(f"{call_id}: unsupported protocol {protocol!r}")
     if protocol == "P3" and row.get("aggregation") != P3_AGGREGATION:
         raise AdapterError(f"{call_id}: native P3 requires linear_probability_pool")
+    if protocol == "P4" and row.get("aggregation") != P4_AGGREGATION:
+        raise AdapterError(f"{call_id}: native P4 requires cost_sweep")
     task = row.get("task")
     if task not in EXPECTED_ANSWERS:
         raise AdapterError(f"{call_id}: unsupported task {task!r}")
@@ -274,9 +278,16 @@ def validate_canonical_row(row: dict[str, Any]) -> None:
     schema = fmt.get("schema")
     _validate_schema(schema, f"{call_id}.schema")
     props = schema["properties"]
-    wanted = {"answer", "probability"} if protocol in ("P1", "P3") else {"answer"}
+    if protocol == "P4":
+        wanted = {"decision", "answer"}
+    elif protocol in ("P1", "P3"):
+        wanted = {"answer", "probability"}
+    else:
+        wanted = {"answer"}
     if set(props) != wanted or set(schema["required"]) != wanted:
         raise AdapterError(f"{call_id}: {protocol} output fields mismatch")
+    if protocol == "P4" and props["decision"].get("enum") != P4_DECISIONS:
+        raise AdapterError(f"{call_id}: P4 decision enum mismatch")
     if props["answer"].get("enum") != EXPECTED_ANSWERS[task]:
         raise AdapterError(f"{call_id}: answer enum does not match task")
     if protocol in ("P1", "P3") and props["probability"].get("type") != "number":
