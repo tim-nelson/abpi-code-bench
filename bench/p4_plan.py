@@ -57,11 +57,19 @@ ACTIVE_TASKS = ("T1", "T2", "T3")
 # referral costs more than a guaranteed-wrong answer, so answering strictly
 # dominates and any referral proves the same. Negative c selects the gains
 # wording (P4_GAIN_TEMPLATE) with g = -c.
-GRIDS = {
-    "core": (5, 15, 25, 35, 45),
-    "anchor": (1, 99),
-    "dominance": (-10, 150),
+# "stakes4"/"stakes6" (2026-08-16 ladder, stage C) scale X and c together so
+# rational thresholds stay pinned at the anchor pair (.99/.01) while absolute
+# magnitudes grow 100x per rung: they test whether payoff MAGNITUDE ever
+# registers for a model whose decisions ignored every X=100 condition
+# (Sonnet: flat core, 0/25 at both anchors, 0/25 under gains dominance).
+CONDITIONS = {
+    "core": {"x": 100, "grid": (5, 15, 25, 35, 45)},
+    "anchor": {"x": 100, "grid": (1, 99)},
+    "dominance": {"x": 100, "grid": (-10, 150)},
+    "stakes4": {"x": 10_000, "grid": (100, 9_900)},
+    "stakes6": {"x": 1_000_000, "grid": (10_000, 990_000)},
 }
+GRIDS = {name: cond["grid"] for name, cond in CONDITIONS.items()}
 COST_GRID = GRIDS["core"]
 COST_X = 100
 
@@ -94,10 +102,12 @@ P4_GAIN_TEMPLATE = (
 )
 
 
-def render_instruction(c: int) -> str:
+def render_instruction(c: int, x: int) -> str:
+    """Thousands separators appear only at >= 1,000, so X=100 conditions render
+    byte-identically to their pre-stakes wording."""
     if c < 0:
-        return P4_GAIN_TEMPLATE.format(x=COST_X, g=-c)
-    return P4_INSTRUCTION_TEMPLATE.format(x=COST_X, c=c)
+        return P4_GAIN_TEMPLATE.format(x=f"{x:,}", g=f"{-c:,}")
+    return P4_INSTRUCTION_TEMPLATE.format(x=f"{x:,}", c=f"{c:,}")
 
 
 def _utc_now() -> str:
@@ -123,8 +133,8 @@ def planner_config(args: SimpleNamespace) -> dict:
         # planner edit ends a run's extension lineage: grow a run only with
         # byte-identical planner code, else start a new run directory.
         "condition": args.condition,
-        "cost_grid": list(GRIDS[args.condition]),
-        "cost_x": COST_X,
+        "cost_grid": list(CONDITIONS[args.condition]["grid"]),
+        "cost_x": CONDITIONS[args.condition]["x"],
         "model": args.model,
         "max_tokens": args.max_tokens,
         "thinking": args.thinking,
@@ -149,7 +159,8 @@ def p4_output_schema(item: dict) -> dict:
 
 
 def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict:
-    grid = GRIDS[args.condition]
+    cond = CONDITIONS[args.condition]
+    grid = cond["grid"]
     if c not in grid:
         raise ValueError(f"cost level {c!r} outside the {args.condition!r} grid {grid}")
     request = run.request_params(item, REQUEST_TEMPLATE_PROTOCOL, variant, args)
@@ -158,14 +169,15 @@ def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict
         raise AssertionError(
             "run.py's P1 instruction no longer matches; refusing to build P4 "
             "prompts against an unrecognised template")
-    request["system"] = system[: -len(P1_INSTRUCTION)] + render_instruction(c)
+    request["system"] = system[: -len(P1_INSTRUCTION)] + render_instruction(c, cond["x"])
     request["output_config"]["format"]["schema"] = p4_output_schema(item)
     return request
 
 
 def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict], dict]:
     """Stable (item x cost-level) rectangle over the unchanged P1 user body."""
-    grid = GRIDS[args.condition]
+    cond = CONDITIONS[args.condition]
+    grid = cond["grid"]
     config = planner_config(args)
     config_hash = run.digest(config)
     calls = []
@@ -196,7 +208,7 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
                 "item_id": item["item_id"], "repeat_index": level,
                 "protocol": PROTOCOL, "aggregation": AGGREGATION,
                 "model": args.model, "config_hash": config_hash,
-                "stage": "verdict", "c": c, "cost_x": COST_X,
+                "stage": "verdict", "c": c, "cost_x": cond["x"],
                 "request_sha256": request_hash,
             }
             # negative (gains) levels get their own tag: a bare minus sign
@@ -219,7 +231,7 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
                 "task": item["task"], "item_id": item["item_id"],
                 "case_number": item["case_number"], "split": item["split"],
                 "task_rank": item["_task_rank"], "item_rank": item["_task_rank"],
-                "repeat_index": level, "cost_points": c, "cost_x": COST_X,
+                "repeat_index": level, "cost_points": c, "cost_x": cond["x"],
                 "protocol": PROTOCOL, "aggregation": AGGREGATION,
                 "model": args.model, "config_hash": config_hash,
                 "prompt_sha256": prompt_hash, "request_sha256": request_hash,
@@ -285,7 +297,7 @@ def _manifest_value(existing: dict | None, items_path: pathlib.Path, config: dic
         # is a cost level and the grid is fixed per condition, so K == len(grid).
         "through_repeats": len(config["cost_grid"]), "k": len(config["cost_grid"]),
         "condition": config["condition"],
-        "cost_grid": list(config["cost_grid"]), "cost_x": COST_X,
+        "cost_grid": list(config["cost_grid"]), "cost_x": config["cost_x"],
         "n_items_planned": len({row["item_id"] for row in calls}),
         "n_calls_planned": len(calls),
         "n_items": len({row["item_id"] for row in calls}), "n_calls": len(calls),
@@ -478,7 +490,7 @@ def self_test(items_path: pathlib.Path) -> int:
         for row in rows:
             req = row["request"]
             assert req["messages"] == p1["messages"], "user message diverged from P1"
-            wanted = P4_INSTRUCTION_TEMPLATE.format(x=COST_X, c=row["cost_points"])
+            wanted = render_instruction(row["cost_points"], COST_X)
             assert req["system"].endswith(wanted), "system missing rendered instruction"
             assert "{c}" not in req["system"] and "{x}" not in req["system"]
             schema = req["output_config"]["format"]["schema"]
@@ -508,7 +520,8 @@ def self_test(items_path: pathlib.Path) -> int:
         assert sorted({c["cost_points"] for c in c_calls}) == sorted(GRIDS[condition])
         hashes.add(run.digest(c_config))
         for row in c_calls:
-            assert row["request"]["system"].endswith(render_instruction(row["cost_points"]))
+            assert row["request"]["system"].endswith(
+                render_instruction(row["cost_points"], CONDITIONS[condition]["x"]))
     assert len(hashes) == 3, "conditions must hash differently"
     dom = build_call_plan(items, SimpleNamespace(**{**vars(args), "condition": "dominance"}))[0]
     gains = [r for r in dom if r["cost_points"] == -10]
@@ -573,8 +586,9 @@ def main(argv: list[str] | None = None) -> int:
     ranked = run.load_ranked_items(args.items, tasks, splits,
                                    args.through_items, args.seed)
     calls, config = build_call_plan(ranked, args)
+    cond = CONDITIONS[args.condition]
     print(f"DRY RUN: {len(calls)} P4 calls over {len(ranked)} items "
-          f"(condition {args.condition}, grid {GRIDS[args.condition]}, X={COST_X})")
+          f"(condition {args.condition}, grid {cond['grid']}, X={cond['x']})")
     print(f"aggregation={AGGREGATION} config={run.digest(config)}")
     print("No network call was made and nothing was written.")
     return 0
