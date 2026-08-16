@@ -1,7 +1,9 @@
 # P4 — Incentivized deferral (design draft, pre-spec)
 
-Status: DRAFT captured 2026-08-16 from the design conversation; the full
-spec + cost sheet still needs owner sign-off before any calls.
+Status: DRAFT captured 2026-08-16 from the design conversation. The full
+specification now lives in `bench/P4_SPEC.md` (drafted 2026-08-16); this file
+remains the record of the design rationale and the session's operational
+state. The spend gate in the spec still needs owner sign-off before any calls.
 
 ## Idea (2026-08-16)
 
