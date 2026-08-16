@@ -565,6 +565,14 @@ def normalize_payload(canonical: dict[str, Any], payload: dict[str, Any],
         _validate_instance(parsed, schema)
         if not isinstance(parsed, dict):
             raise AdapterError("structured response root must be an object")
+        if canonical["protocol"] == "P4" and "probability" in parsed:
+            probability = parsed["probability"]
+            if (not isinstance(probability, (int, float))
+                    or not math.isfinite(float(probability))
+                    or not 0.0 <= float(probability) <= 1.0):
+                raise AdapterError(
+                    f"P4 stated probability {probability!r} is outside [0, 1]")
+            parsed["probability"] = float(probability)
         if canonical["protocol"] in ("P1", "P3"):
             probability = parsed["probability"]
             if not math.isfinite(float(probability)) or not 0 <= float(probability) <= 1:
