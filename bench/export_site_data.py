@@ -883,7 +883,7 @@ def p4_board_metrics(score_mod, rows, grid, items_by_id, run_id):
     ece_six = sum(
         len(group) / len(scored) * abs(sum(group) / len(group) - mids[k])
         for k, group in sorted(by_k.items()))
-    return {
+    metrics = {
         "n": len(scored),
         "accuracy": score_mod.accuracy(scored),
         "brier": score_mod.brier(scored),
@@ -891,6 +891,15 @@ def p4_board_metrics(score_mod, rows, grid, items_by_id, run_id):
         "auroc": score_mod.auroc(scored),
         "sp_aurc": score_mod.selective_prediction(scored)["aurc"],
     }
+    # The occupied bins themselves, for the site's six-point reliability
+    # series: x = the documented midpoint, y = realized modal-verdict
+    # accuracy, n = bin size. Empty bins are absent, not zero-filled.
+    bins = [
+        {"k": k, "midpoint": mids[k], "n": len(group),
+         "accuracy": sum(group) / len(group)}
+        for k, group in sorted(by_k.items())
+    ]
+    return metrics, bins
 
 
 def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
@@ -990,10 +999,11 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
             sys.exit(f"p4 core run {run_id!r} parsed {counts['parsed']} of "
                      f"{counts['planned']} planned calls; the core curve "
                      "requires the whole rectangle")
+        metrics, bins = p4_board_metrics(
+            score_mod, rows, P4_CONDITION_GRIDS["core"], items_by_id, run_id)
         slots[task] = {
-            "metrics": p4_board_metrics(
-                score_mod, rows, P4_CONDITION_GRIDS["core"], items_by_id,
-                run_id),
+            "metrics": metrics,
+            "bins": bins,
             "run_id": run_id,
             "n_items": counts["items"],
             "monotone_violations": scores["monotonicity"]["violations"],
@@ -1670,7 +1680,14 @@ def _automatic_board_candidates(score_mod, active_runs, current_items_path):
                 "horizon": horizon,
                 "k": repeats if semantics in score_mod.REPEATED_SEMANTICS else 1,
             })
-    candidates.extend(_derived_vote_candidates(score_mod, candidates))
+    derived = _derived_vote_candidates(score_mod, candidates)
+    # Derived-P2 throughout (2026-08-16; dissertation Appendix C): the P2
+    # boards display EVERY model through the same vote-from-P3 lens, so each
+    # task's P2 column carries the refreshed P3 horizon uniformly (T3 at
+    # N=200). Native P2 runs stay activated and their canonical scores still
+    # publish under Results (runs.json); they simply no longer seed board
+    # entries beside a derived twin measured from a different call condition.
+    candidates = [c for c in candidates if c["protocol"] != "P2"] + derived
     return candidates, excluded
 
 
@@ -1683,12 +1700,11 @@ def _derived_vote_candidates(score_mod, candidates):
     receipts untouched — score.py's own repeated-stated aggregation and
     p3_vote_rows produce the per-item vote rows downstream — and changes only
     the board method identity, wearing DERIVED_VOTE_FROM_P3 so a derived entry
-    can never be read as a native P2 run. A model that has its own native P2
-    candidate for the task keeps only the native entry; the derived duplicate
-    is skipped, never merged.
+    can never be read as a native P2 run. Every active P3 run derives one
+    (derived-P2 throughout, 2026-08-16): the caller drops native P2 candidates
+    from the boards, so one uniform lens covers all models at the full shared
+    P3 horizon while native P2 scores stay published as runs.
     """
-    native_p2 = {(candidate["model"], candidate["task"])
-                 for candidate in candidates if candidate["protocol"] == "P2"}
     derived = []
     for candidate in candidates:
         if candidate["protocol"] != CURRENT_P3_PROTOCOL:
@@ -1699,13 +1715,9 @@ def _derived_vote_candidates(score_mod, candidates):
                 f"{CURRENT_P3_PROTOCOL} candidate carries semantics "
                 f"{candidate['semantics']!r}, not {score_mod.REPEATED_STATED!r}, "
                 "so no verdict-vote view can be derived from it. Refusing.")
-        if (candidate["model"], candidate["task"]) in native_p2:
-            continue
         # The vote view uses no probability pool, so its board condition is the
         # P3 run's own ordering/prompt condition with P2's aggregation identity
-        # (None). It joins a native P2 board exactly when every remaining
-        # condition field matches; _automatic_cumulative_boards refuses a
-        # derived-only P2 board rather than letting a mismatch split silently.
+        # (None): every derived candidate of one task shares one board.
         condition = dict(candidate["condition"])
         condition["aggregation"] = None
         derived.append({
@@ -1901,12 +1913,16 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
             row["model"] or "", row["entry_id"]))
         n_derived = sum(1 for entry in entries
                         if entry["protocol_condition"] == DERIVED_VOTE_FROM_P3)
-        if n_derived and n_derived == len(entries):
+        # Derived-P2 throughout: a P2 board is now EXPECTED to be all derived
+        # entries (one lens, full shared P3 horizon). What stays refused is a
+        # mixed board — a native entry beside derived ones would compare two
+        # call conditions on one board while dressing them alike.
+        if protocol == "P2" and 0 < n_derived < len(entries):
             sys.exit(
-                f"automatic leaderboard {protocol}/{task}: every entry is a derived "
-                "P3 vote view and no native P2 run shares the board condition. A "
-                "derived-only P2 board would rest on a condition mismatch, not a "
-                "comparison; fix the conditions or drop the derivation. Refusing.")
+                f"automatic leaderboard {protocol}/{task}: {n_derived} of "
+                f"{len(entries)} entries are derived vote views beside native P2 "
+                "entries. Boards report one lens; native P2 candidates should "
+                "have been dropped upstream. Refusing.")
 
         cohort_models = {entry["model"] for entry in entries}
         caveats = []
@@ -1948,11 +1964,15 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
             method = f"verdict-repeat agreement · K={common_k}"
             method_slug = "p2-agreement"
             if n_derived:
-                note = ("Exact common cumulative task-rank prefix 1..N; native "
-                        "entries use the same items and byte-identical verdict "
-                        "prompt under P2, and entries marked 'vote from P3' apply "
-                        "the same modal-verdict rule to their model's K "
-                        "byte-identical P3 calls on the same items.")
+                note = ("Exact common cumulative task-rank prefix 1..N; every "
+                        "entry is the verdict-vote view of that model's active "
+                        "P3 run — the modal verdict over the same K byte-"
+                        "identical calls, confidence = modal frequency — marked "
+                        "'vote from P3', so one lens covers all models at the "
+                        "full shared P3 horizon. The P3 prompts also requested "
+                        "a stated probability; a native P2 prompt is verdict-"
+                        "only, and native P2 runs remain published under "
+                        "Results.")
             else:
                 note = ("Exact common cumulative task-rank prefix 1..N; every entry uses "
                         "the same items and byte-identical verdict prompt under P2.")
@@ -2367,9 +2387,10 @@ def main():
             "recompute every entry on the shared cumulative item prefix; P1 stated "
             "confidence, P2 verdict-repeat agreement and P3 repeated stated-confidence "
             "linear pools never mix (P2 uses "
-            "its shared repeat prefix); a model with no native P2 run may appear on a "
-            "P2 board as the verdict-vote view of its active P3 run, always marked "
-            "derived_vote_from_p3 and never replacing or merging with a native entry; "
+            "its shared repeat prefix); every P2 board entry is the verdict-vote view "
+            "of that model's active P3 run, always marked derived_vote_from_p3, so one "
+            "lens covers all models at the full shared P3 horizon while native P2 runs "
+            "stay published as runs; "
             "declared boards retain their explicit same-items "
             "policy; SP risk–coverage is computed offline from each exact board; no rank "
             "is implied by a one-entry board"),
