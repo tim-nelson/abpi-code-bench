@@ -51,6 +51,11 @@ SCORING_INPUTS_SCHEMA = "pmcpa.score-inputs.v1"
 CURRENT_P3_PROTOCOL = "P3"
 LEGACY_REPEATED_STATED_CONDITION = "repeated_stated_probability"
 LINEAR_PROBABILITY_POOL = "linear_probability_pool"
+# Entry-level marker for a P2-board entry computed from an active P3 run's
+# verdict votes (modal answer over the K byte-identical calls; confidence =
+# modal frequency) rather than from a native P2 run. The marker is what keeps
+# native and derived entries from ever being conflated on one board.
+DERIVED_VOTE_FROM_P3 = "derived_vote_from_p3"
 
 # An explicitly requested small review subset keeps a floor of each predefined
 # descriptive tag so the site remains useful for manual inspection.
@@ -1224,6 +1229,7 @@ def _automatic_board_candidates(score_mod, active_runs, current_items_path):
                 "aggregation": aggregation,
                 "source_protocol": source_protocol,
                 "source_protocol_condition": source_protocol_condition,
+                "source_aggregation": aggregation,
                 "semantics": semantics,
                 "task": task,
                 "contract": contract,
@@ -1234,7 +1240,61 @@ def _automatic_board_candidates(score_mod, active_runs, current_items_path):
                 "horizon": horizon,
                 "k": repeats if semantics in score_mod.REPEATED_SEMANTICS else 1,
             })
+    candidates.extend(_derived_vote_candidates(score_mod, candidates))
     return candidates, excluded
+
+
+def _derived_vote_candidates(score_mod, candidates):
+    """P2-board candidates derived from active P3 runs' verdict votes.
+
+    A P3 run already holds K byte-identical verdict draws per item, so its
+    modal verdict (confidence = modal frequency) measures the same estimand a
+    native P2 run does. The derived candidate keeps the P3 run's records and
+    receipts untouched — score.py's own repeated-stated aggregation and
+    p3_vote_rows produce the per-item vote rows downstream — and changes only
+    the board method identity, wearing DERIVED_VOTE_FROM_P3 so a derived entry
+    can never be read as a native P2 run. A model that has its own native P2
+    candidate for the task keeps only the native entry; the derived duplicate
+    is skipped, never merged.
+    """
+    native_p2 = {(candidate["model"], candidate["task"])
+                 for candidate in candidates if candidate["protocol"] == "P2"}
+    derived = []
+    for candidate in candidates:
+        if candidate["protocol"] != CURRENT_P3_PROTOCOL:
+            continue
+        if candidate["semantics"] != score_mod.REPEATED_STATED:
+            sys.exit(
+                f"automatic leaderboard {candidate['run_id']}: a "
+                f"{CURRENT_P3_PROTOCOL} candidate carries semantics "
+                f"{candidate['semantics']!r}, not {score_mod.REPEATED_STATED!r}, "
+                "so no verdict-vote view can be derived from it. Refusing.")
+        if (candidate["model"], candidate["task"]) in native_p2:
+            continue
+        # The vote view uses no probability pool, so its board condition is the
+        # P3 run's own ordering/prompt condition with P2's aggregation identity
+        # (None). It joins a native P2 board exactly when every remaining
+        # condition field matches; _automatic_cumulative_boards refuses a
+        # derived-only P2 board rather than letting a mismatch split silently.
+        condition = dict(candidate["condition"])
+        condition["aggregation"] = None
+        derived.append({
+            **candidate,
+            "protocol": "P2",
+            "protocol_condition": None,
+            "aggregation": None,
+            # Pin the source identity before the relabel: the records stay P3
+            # records and are aggregated as such before the vote is read off.
+            "source_protocol": candidate.get(
+                "source_protocol", candidate["protocol"]),
+            "source_protocol_condition": candidate.get(
+                "source_protocol_condition", candidate["protocol_condition"]),
+            "source_aggregation": candidate.get(
+                "source_aggregation", candidate["aggregation"]),
+            "condition": condition,
+            "derived": DERIVED_VOTE_FROM_P3,
+        })
+    return derived
 
 
 def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
@@ -1247,16 +1307,37 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
         candidate.setdefault("source_protocol", candidate["protocol"])
         candidate.setdefault(
             "source_protocol_condition", candidate["protocol_condition"])
+        candidate.setdefault("source_aggregation", candidate["aggregation"])
         candidate.setdefault(
             "semantics", score_mod.protocol_semantics(
                 candidate["source_protocol"], candidate["contract"],
                 candidate["source_protocol_condition"]))
+        candidate.setdefault("derived", None)
+        if candidate["derived"] not in (None, DERIVED_VOTE_FROM_P3):
+            sys.exit(f"automatic leaderboard {candidate['run_id']}: unknown derived "
+                     f"marker {candidate['derived']!r}. Refusing.")
+        if candidate["derived"] == DERIVED_VOTE_FROM_P3 and (
+                candidate["protocol"] != "P2"
+                or candidate["source_protocol"] != CURRENT_P3_PROTOCOL
+                or candidate["semantics"] != score_mod.REPEATED_STATED):
+            sys.exit(f"automatic leaderboard {candidate['run_id']}: a derived vote "
+                     "candidate must present as P2 over repeated-stated P3 records "
+                     f"(got protocol {candidate['protocol']!r}, source "
+                     f"{candidate['source_protocol']!r}, semantics "
+                     f"{candidate['semantics']!r}). Refusing.")
+        if (candidate["semantics"] == score_mod.REPEATED_STATED
+                and candidate["protocol"] != CURRENT_P3_PROTOCOL
+                and candidate["derived"] != DERIVED_VOTE_FROM_P3):
+            sys.exit(f"automatic leaderboard {candidate['run_id']}: repeated-stated "
+                     f"records may only present as {CURRENT_P3_PROTOCOL} or as an "
+                     "explicitly derived P2 vote view. Refusing.")
         condition_hash = canonical_sha256(candidate["condition"])[:10]
         # P3 is a separately declared K-call linear-pool system. Unlike P2's
         # shared-prefix comparison, P3@5 must never silently become P3@3 merely
-        # because another model stopped earlier.
+        # because another model stopped earlier. A derived vote candidate
+        # presents as P2 and follows P2's shared-repeat-prefix rule instead.
         exact_k = (candidate["k"]
-                   if candidate["semantics"] == score_mod.REPEATED_STATED else None)
+                   if candidate["protocol"] == CURRENT_P3_PROTOCOL else None)
         key = (candidate["protocol"], candidate["protocol_condition"],
                candidate["aggregation"], exact_k,
                candidate["task"], condition_hash)
@@ -1278,7 +1359,7 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
         else:
             common_k = min(row["k"] for row in cohort) if protocol == "P2" else 1
 
-        entries, prompt_sequences = [], []
+        entries, prompt_sequences = [], collections.defaultdict(set)
         for candidate in cohort:
             selected = [
                 rec for rec in candidate["records"]
@@ -1286,19 +1367,46 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 and (candidate["semantics"] not in score_mod.REPEATED_SEMANTICS
                      or int(rec["repeat_index"]) <= common_k)
             ]
-            rows, dropped = score_mod.aggregate(
-                selected, items_by_id, candidate["source_protocol"],
-                expected_repeats=(common_k
-                                  if candidate["semantics"] in score_mod.REPEATED_SEMANTICS
-                                  else None),
-                run_contract=candidate["contract"],
-                protocol_condition=candidate["source_protocol_condition"],
-                aggregation=aggregation,
-            )
+            try:
+                rows, dropped = score_mod.aggregate(
+                    selected, items_by_id, candidate["source_protocol"],
+                    expected_repeats=(common_k
+                                      if candidate["semantics"] in score_mod.REPEATED_SEMANTICS
+                                      else None),
+                    run_contract=candidate["contract"],
+                    # The candidate's own declared aggregation, not the board's:
+                    # a derived vote entry still aggregates its records as the
+                    # P3 linear pool before the vote view is read off it.
+                    protocol_condition=candidate["source_protocol_condition"],
+                    aggregation=candidate["source_aggregation"],
+                )
+            except ValueError as exc:
+                sys.exit(
+                    f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
+                    f"{exc}. Refusing.")
             if dropped or {row["item_id"] for row in rows} != set(common_sequence):
                 sys.exit(
                     f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
                     f"common prefix did not score exactly ({dropped[:1]}). Refusing.")
+            if candidate["derived"] == DERIVED_VOTE_FROM_P3:
+                # The vote view score.py already computed for these exact calls:
+                # answer = modal verdict, p = modal frequency, correct re-marked
+                # against the same label. Metrics and the case-blocked bootstrap
+                # below then run on these rows through the identical path every
+                # other entry takes. No pool value ever substitutes for a
+                # missing vote — an incomplete vote block refuses instead.
+                incomplete = [
+                    row["item_id"] for row in rows
+                    if not isinstance((row.get("p3") or {}).get("vote"), dict)
+                    or not {"answer", "p", "correct", "modal_tie"}
+                    <= set(row["p3"]["vote"])]
+                if incomplete:
+                    sys.exit(
+                        f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
+                        f"{len(incomplete)} scored row(s) lack a complete P3 vote "
+                        f"block (first: {incomplete[0]}), so the derived P2 vote "
+                        "view cannot be computed. Refusing.")
+                rows = score_mod.p3_vote_rows(rows)
 
             prompt_by_item = collections.defaultdict(set)
             for rec in selected:
@@ -1307,8 +1415,17 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 sys.exit(
                     f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
                     "one item has multiple prompt identities. Refusing.")
-            prompt_sequences.append(tuple(
-                next(iter(prompt_by_item[item_id])) for item_id in common_sequence))
+            # Prompt identity is claimed per SOURCE protocol: native entries of
+            # one board share byte-identical prompts, and every derived vote
+            # entry shares the byte-identical P3 prompt, but a P3 prompt also
+            # asks for a stated probability so it can never equal the verdict-
+            # only P2 prompt. That difference is declared in the board note and
+            # caveats rather than pretended away.
+            prompt_sequences[
+                (candidate["source_protocol"],
+                 candidate["source_protocol_condition"])].add(tuple(
+                    next(iter(prompt_by_item[item_id]))
+                    for item_id in common_sequence))
 
             by_label = {}
             for label in sorted({row["label"] for row in rows}):
@@ -1327,7 +1444,12 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 "source_protocol": candidate["source_protocol"],
                 "source_protocol_condition": candidate[
                     "source_protocol_condition"],
-                "protocol_condition": protocol_condition,
+                # The derived marker lives on the entry: the board-level
+                # condition stays shared, and this field is what the site and
+                # any reader use to tell a derived vote entry from a native run.
+                "protocol_condition": (DERIVED_VOTE_FROM_P3
+                                       if candidate["derived"] == DERIVED_VOTE_FROM_P3
+                                       else protocol_condition),
                 "aggregation": aggregation,
                 **score_mod.metric_set(rows),
                 "mean_p": score_mod.mean_confidence(rows),
@@ -1337,13 +1459,24 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 "p4": score_mod.selective_prediction(rows),
             })
 
-        if len(set(prompt_sequences)) != 1:
-            sys.exit(
-                f"automatic leaderboard {protocol}/{task}: entries received different prompts "
-                "on the claimed common prefix. Refusing.")
+        for family, sequences in sorted(prompt_sequences.items(),
+                                        key=lambda pair: str(pair[0])):
+            if len(sequences) != 1:
+                sys.exit(
+                    f"automatic leaderboard {protocol}/{task}: entries sourced from "
+                    f"{family[0]} received different prompts on the claimed common "
+                    "prefix. Refusing.")
         entries.sort(key=lambda row: (
             row["brier"] is None, row["brier"] if row["brier"] is not None else 0,
             row["model"] or "", row["entry_id"]))
+        n_derived = sum(1 for entry in entries
+                        if entry["protocol_condition"] == DERIVED_VOTE_FROM_P3)
+        if n_derived and n_derived == len(entries):
+            sys.exit(
+                f"automatic leaderboard {protocol}/{task}: every entry is a derived "
+                "P3 vote view and no native P2 run shares the board condition. A "
+                "derived-only P2 board would rest on a condition mismatch, not a "
+                "comparison; fix the conditions or drop the derivation. Refusing.")
 
         cohort_models = {entry["model"] for entry in entries}
         caveats = []
@@ -1361,6 +1494,13 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
             caveats.append("Longer runs are truncated to the exact shared item prefix.")
         if protocol == "P2" and any(entry["source_k"] > common_k for entry in entries):
             caveats.append(f"Repeated runs are compared at their shared repeat prefix K={common_k}.")
+        if n_derived:
+            caveats.append(
+                f"{n_derived} of {len(entries)} entries are derived vote views of "
+                "that model's active P3 run (modal verdict over the same K "
+                "byte-identical calls; confidence = modal frequency), marked "
+                f"{DERIVED_VOTE_FROM_P3}. Their P3 prompts also requested a stated "
+                "probability; native P2 prompts are verdict-only.")
 
         condition = cohort[0]["condition"]
         if protocol == CURRENT_P3_PROTOCOL:
@@ -1377,8 +1517,15 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
         else:
             method = f"verdict-repeat agreement · K={common_k}"
             method_slug = "p2-agreement"
-            note = ("Exact common cumulative task-rank prefix 1..N; every entry uses "
-                    "the same items and byte-identical verdict prompt under P2.")
+            if n_derived:
+                note = ("Exact common cumulative task-rank prefix 1..N; native "
+                        "entries use the same items and byte-identical verdict "
+                        "prompt under P2, and entries marked 'vote from P3' apply "
+                        "the same modal-verdict rule to their model's K "
+                        "byte-identical P3 calls on the same items.")
+            else:
+                note = ("Exact common cumulative task-rank prefix 1..N; every entry uses "
+                        "the same items and byte-identical verdict prompt under P2.")
         boards.append({
             "board_id": f"cumulative-{method_slug}-{task.lower()}-{condition_hash}",
             "title": f"{task} · {protocol} {method}",
@@ -1401,6 +1548,7 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 "rankable": len(cohort_models) > 1,
                 "cross_model": len(cohort_models) > 1,
                 "n_entries": len(entries),
+                "n_derived_entries": n_derived,
                 "n_models": len(cohort_models),
                 "n_active_models": len(set(active_models)),
                 "common_prefix_n": common_n,
@@ -1777,7 +1925,10 @@ def main():
             "recompute every entry on the shared cumulative item prefix; P1 stated "
             "confidence, P2 verdict-repeat agreement and P3 repeated stated-confidence "
             "linear pools never mix (P2 uses "
-            "its shared repeat prefix); declared boards retain their explicit same-items "
+            "its shared repeat prefix); a model with no native P2 run may appear on a "
+            "P2 board as the verdict-vote view of its active P3 run, always marked "
+            "derived_vote_from_p3 and never replacing or merging with a native entry; "
+            "declared boards retain their explicit same-items "
             "policy; P4 risk–coverage is computed offline from each exact board; no rank "
             "is implied by a one-entry board"),
     }
