@@ -115,6 +115,8 @@ CHAT_ENDPOINT = "/chat/completions"
 MAX_OUTPUT_TOKENS = 4096
 STRUCTURED_OUTPUT_NAME = "pmcpa_bench_output"
 P3_AGGREGATION = "linear_probability_pool"
+P4_AGGREGATION = "cost_sweep"
+P4_DECISIONS = ["answer", "refer"]
 
 RETRY_MAX_ATTEMPTS = 4
 RETRY_BASE_SECONDS = 2.0
@@ -439,14 +441,20 @@ def validate_canonical_row(row: dict[str, Any], provider: str) -> None:
     model = _require_string(row.get("model"), f"{call_id}.model")
     require_model_config(provider, model)
     protocol = _require_string(row.get("protocol"), f"{call_id}.protocol")
-    if protocol not in ("P1", "P2", "P3"):
-        raise AdapterError(f"{call_id}: only active P1/P2/P3 calls can be submitted")
+    if protocol not in ("P1", "P2", "P3", "P4"):
+        raise AdapterError(f"{call_id}: only active P1/P2/P3/P4 calls can be submitted")
     if protocol == "P3":
         if row.get("protocol_condition") is not None:
             raise AdapterError(f"{call_id}: native P3 must not carry protocol_condition")
         if row.get("aggregation") != P3_AGGREGATION:
             raise AdapterError(
                 f"{call_id}: native P3 requires aggregation={P3_AGGREGATION!r}")
+    if protocol == "P4":
+        if row.get("protocol_condition") is not None:
+            raise AdapterError(f"{call_id}: native P4 must not carry protocol_condition")
+        if row.get("aggregation") != P4_AGGREGATION:
+            raise AdapterError(
+                f"{call_id}: native P4 requires aggregation={P4_AGGREGATION!r}")
     task = _require_string(row.get("task"), f"{call_id}.task")
     if task not in EXPECTED_ANSWERS:
         raise AdapterError(f"{call_id}: unsupported active task {task!r}")
@@ -499,10 +507,20 @@ def validate_canonical_row(row: dict[str, Any], provider: str) -> None:
     _validate_schema_definition(schema, f"{call_id}.schema")
     properties = schema["properties"]
     stated_protocol = protocol in ("P1", "P3")
-    expected_fields = {"answer", "probability"} if stated_protocol else {"answer"}
+    if protocol == "P4":
+        expected_fields = {"decision", "answer"}
+    elif stated_protocol:
+        expected_fields = {"answer", "probability"}
+    else:
+        expected_fields = {"answer"}
     if set(properties) != expected_fields or set(schema["required"]) != expected_fields:
         raise AdapterError(
             f"{call_id}: {protocol} output fields must be exactly {sorted(expected_fields)}")
+    if protocol == "P4":
+        decision_schema = properties["decision"]
+        if (decision_schema.get("type") != "string"
+                or decision_schema.get("enum") != P4_DECISIONS):
+            raise AdapterError(f"{call_id}: P4 decision schema mismatch")
     answer_schema = properties["answer"]
     if (answer_schema.get("type") != "string"
             or answer_schema.get("enum") != EXPECTED_ANSWERS[task]):
