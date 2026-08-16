@@ -75,6 +75,11 @@ CONDITIONS = {
     "stakes4": {"x": 10_000, "grid": (100, 9_900)},
     "stakes6": {"x": 1_000_000, "grid": (10_000, 990_000)},
     "anchor_stated": {"x": 100, "grid": (1, 99), "stated": True},
+    # "anchor_instructed" (2026-08-16, ladder closing question): anchors plus
+    # one sentence of explicit optimization pressure, still never stating the
+    # threshold rule. Separates default-behaviour blindness ("won't") from a
+    # decision channel that cannot use payoffs at all ("can't").
+    "anchor_instructed": {"x": 100, "grid": (1, 99), "instructed": True},
 }
 GRIDS = {name: cond["grid"] for name, cond in CONDITIONS.items()}
 COST_GRID = GRIDS["core"]
@@ -109,6 +114,10 @@ P4_GAIN_TEMPLATE = (
 )
 
 
+INSTRUCTED_SENTENCE = (
+    "Choose so as to minimize the points you expect to lose. Do not explain."
+)
+
 STATED_SENTENCE = (
     "First state the probability that your verdict is the one the adjudicator "
     "actually reached, as a number between 0 and 1: the probability is recorded "
@@ -116,7 +125,8 @@ STATED_SENTENCE = (
 )
 
 
-def render_instruction(c: int, x: int, stated: bool = False) -> str:
+def render_instruction(c: int, x: int, stated: bool = False,
+                       instructed: bool = False) -> str:
     """Thousands separators appear only at >= 1,000, so X=100 conditions render
     byte-identically to their pre-stakes wording. ``stated`` splices the
     probability elicitation (P1's exact target phrase) ahead of the decision
@@ -130,6 +140,10 @@ def render_instruction(c: int, x: int, stated: bool = False) -> str:
         if text.count(old) != 1:
             raise AssertionError("P4 template drifted; stated splice refuses")
         text = text.replace(old, STATED_SENTENCE)
+    if instructed:
+        if not text.endswith("Do not explain."):
+            raise AssertionError("P4 template drifted; instructed splice refuses")
+        text = text[: -len("Do not explain.")] + INSTRUCTED_SENTENCE
     return text
 
 
@@ -199,7 +213,8 @@ def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict
             "prompts against an unrecognised template")
     stated = bool(cond.get("stated"))
     request["system"] = (system[: -len(P1_INSTRUCTION)]
-                         + render_instruction(c, cond["x"], stated))
+                         + render_instruction(c, cond["x"], stated,
+                                              bool(cond.get("instructed"))))
     request["output_config"]["format"]["schema"] = p4_output_schema(item, stated)
     return request
 
