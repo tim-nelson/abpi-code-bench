@@ -23,7 +23,8 @@
   "glm-5.2-default-p1",
   "glm-5.2-default-p3",
   "deepseek-v4-pro-default-p1",
-  "deepseek-v4-pro-default-p3"
+  "deepseek-v4-pro-default-p3",
+  "grok-4.6-default-p3"
  ],
  "leaderboard_boards": [],
  "leaderboard_excluded": []
