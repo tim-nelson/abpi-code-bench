@@ -1831,7 +1831,7 @@ def main():
                    "n": tasks.get("T1", 0)},
             "T2": {"question": "Did the Panel rule a breach of this clause?",
                    "answers": ["breach", "no_breach"],
-                   "shown": "complaint only — the defence is hidden",
+                   "shown": "complaint only, with the defence hidden",
                    "n": tasks.get("T2", 0)},
             "T3": {"question": "Did the Appeal Board uphold or overturn the Panel's ruling?",
                    "answers": ["upheld", "overturned"],
