@@ -122,8 +122,11 @@ def implied_bins(per_item, grid, x):
         elif k == len(grid):
             interval = [max(thresholds), 1.0]
         else:
-            lo = sorted(thresholds)[len(grid) - 1 - k]
-            hi = sorted(thresholds)[len(grid) - k]
+            # answers at k levels: rational p-hat sits between the k-th and
+            # (k+1)-th smallest thresholds (answering starts at the cheapest
+            # escape it declines)
+            lo = sorted(thresholds)[k - 1]
+            hi = sorted(thresholds)[k]
             interval = [lo, hi]
         bins.append({"answers_at_k_levels": k, "implied_interval": interval,
                      "n_items": counts.get(k, 0)})
@@ -214,6 +217,14 @@ def self_test():
     assert tuple(per["i3"][c]["decision"] == "answer" for c in grid) not in mono
     bins = implied_bins(per, grid, 100)
     assert [b["n_items"] for b in bins] == [0, 2, 2]
+    five = implied_bins({f"x{i}": {c: {"decision": "answer" if c >= cut else "refer",
+                                       "correct": True, "cluster": f"x{i}"}
+                                   for c in (5, 15, 25, 35, 45)}
+                         for i, cut in enumerate((6, 16, 26, 36, 46))},
+                        (5, 15, 25, 35, 45), 100)
+    ivs = [b["implied_interval"] for b in five]
+    assert ivs[0] == [0.0, 0.55] and ivs[5] == [0.95, 1.0]
+    assert ivs[1] == [0.55, 0.65] and ivs[4] == [0.85, 0.95], ivs
     assert implied_bins(per, (-10, 150), 100) is None
     ci = _cluster_bootstrap(per, 5, 100, draws=64, seed="t")
     assert len(ci["mean_loss_ci"]) == 2

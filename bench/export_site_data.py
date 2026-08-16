@@ -676,8 +676,12 @@ def collect_runs(active_run_ids, current_items_path=None):
 # confidence reading of a core deferral curve is licensed only for models
 # that pass it.
 
-P4_SITE_SCHEMA = "pmcpa.site-p4.v1"
+P4_SITE_SCHEMA = "pmcpa.site-p4.v2"
 P4_X = 100
+# Tasks a core deferral curve may exist for. Coverage is allowed to be ragged
+# — a model's row carries null for a task whose run is absent or not yet
+# registered — but a registered core run must claim exactly one of these.
+P4_TASKS = ("T1", "T2", "T3")
 P4_CONDITION_GRIDS = {
     "core": (5, 15, 25, 35, 45),
     "anchor": (1, 99),
@@ -746,6 +750,14 @@ def p4_run_receipts(run_id, allowed_conditions):
         sys.exit(f"p4 registry run {run_id!r} has condition "
                  f"{manifest.get('condition')!r}; expected one of "
                  f"{sorted(allowed_conditions)}")
+    # One P4 run serves exactly one task; the manifest's per-task horizon is
+    # the durable witness for which one.
+    task_horizons = manifest.get("max_through_items_by_task") or {}
+    tasks = sorted(task_horizons)
+    if len(tasks) != 1 or tasks[0] not in P4_TASKS:
+        sys.exit(f"p4 registry run {run_id!r} claims tasks {tasks}; a P4 run "
+                 f"must claim exactly one of {list(P4_TASKS)}")
+    task = tasks[0]
     defects = []
     if (manifest.get("protocol"), manifest.get("aggregation")) != ("P4", "cost_sweep"):
         defects.append(f"protocol/aggregation={manifest.get('protocol')!r}/"
@@ -777,6 +789,11 @@ def p4_run_receipts(run_id, allowed_conditions):
         if parsed.get("decision") not in ("answer", "refer"):
             defects.append(f"receipt {call_id!r} has no parsed answer/refer decision")
             continue
+        # The verdict is recorded either way ("recorded but not scored" when
+        # referring); the board metrics read it, so its absence is a defect.
+        if not isinstance(parsed.get("answer"), str) or not parsed["answer"]:
+            defects.append(f"receipt {call_id!r} has no recorded verdict")
+            continue
         cell = (receipt.get("item_id"), receipt.get("cost_points"))
         if cell in seen_cells:
             defects.append(f"duplicate (item, cost) receipt {cell!r}")
@@ -784,11 +801,12 @@ def p4_run_receipts(run_id, allowed_conditions):
         seen_cells.add(cell)
         rows.append({"item_id": receipt["item_id"],
                      "cost_points": receipt["cost_points"],
-                     "decision": parsed["decision"]})
+                     "decision": parsed["decision"],
+                     "answer": parsed["answer"]})
     if defects:
         sys.exit(f"p4 registry run {run_id!r} failed receipt verification: "
                  + "; ".join(defects))
-    return manifest, condition, rows
+    return manifest, condition, task, rows
 
 
 def p4_deferral_cell(rows, cost):
@@ -806,6 +824,75 @@ def p4_classify(c1_rate):
     return "weakly_responsive"
 
 
+def p4_bin_midpoints(grid, x):
+    """Midpoint of the implied-confidence interval for each bin index k.
+
+    Rational play answers wherever p >= 1 - c/x, so answering at exactly k of
+    the len(grid) levels places p between the k-th and (k+1)-th SMALLEST
+    rational thresholds (k=0 -> below them all, k=len(grid) -> above them
+    all). For the core grid the bounds are 0/.55/.65/.75/.85/.95/1 and the
+    midpoints 0.275/0.60/0.70/0.80/0.90/0.975. This is the documented
+    bin-midpoint convention behind the P4 board's Brier/ECE; it is a stated
+    mapping, not an elicited probability. (Note: bench/p4_score.py's
+    implied_bins reports the INTERIOR intervals mirrored for grids larger
+    than two levels; this helper follows the rational-threshold derivation.)
+    """
+    thresholds = sorted(1 - c / x for c in grid)
+    bounds = [0.0] + thresholds + [1.0]
+    return [round((bounds[k] + bounds[k + 1]) / 2, 6)
+            for k in range(len(grid) + 1)]
+
+
+def p4_board_metrics(score_mod, rows, grid, items_by_id, run_id):
+    """P1-P3-comparable board metrics for one core run's verified receipts.
+
+    Accuracy is modal-verdict accuracy over the five cost-level calls per
+    item (P2's modal convention). AUROC and SP AURC threshold the item's
+    implied-confidence bin index k (answers at k of the 5 levels) — exact,
+    ordinal statistics. Brier maps k to its interval midpoint
+    (:func:`p4_bin_midpoints`); ECE is taken over the six k-bins directly.
+    AUROC/Brier/SP reuse score.py's own functions so the convention beyond
+    the k->midpoint mapping is byte-identical to every other board column.
+    """
+    mids = p4_bin_midpoints(grid, P4_X)
+    per_item = collections.defaultdict(dict)
+    for row in rows:
+        per_item[row["item_id"]][row["cost_points"]] = row
+    scored = []
+    for iid in sorted(per_item):
+        by_c = per_item[iid]
+        if sorted(by_c) != sorted(grid):
+            sys.exit(f"p4 core run {run_id!r}: item {iid} lacks a full cost "
+                     "grid; board metrics require the whole rectangle")
+        item = items_by_id.get(iid)
+        if item is None:
+            sys.exit(f"p4 core run {run_id!r}: unknown item {iid!r}")
+        votes = collections.Counter(by_c[c]["answer"] for c in grid)
+        top, n_top = votes.most_common(1)[0]
+        if n_top * 2 <= len(grid):
+            sys.exit(f"p4 core run {run_id!r}: item {iid} has a tied modal "
+                     "verdict; refusing rather than breaking the tie")
+        k = sum(by_c[c]["decision"] == "answer" for c in grid)
+        scored.append({"item_id": iid, "task": item["task"],
+                       "label": item["label"], "answer": top,
+                       "correct": int(top == item["label"]),
+                       "p": mids[k], "k": k})
+    by_k = collections.defaultdict(list)
+    for row in scored:
+        by_k[row["k"]].append(row["correct"])
+    ece_six = sum(
+        len(group) / len(scored) * abs(sum(group) / len(group) - mids[k])
+        for k, group in sorted(by_k.items()))
+    return {
+        "n": len(scored),
+        "accuracy": score_mod.accuracy(scored),
+        "brier": score_mod.brier(scored),
+        "ece": ece_six,
+        "auroc": score_mod.auroc(scored),
+        "sp_aurc": score_mod.selective_prediction(scored)["aurc"],
+    }
+
+
 def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
     """The site's P4 surface: qualification cells, classes and core curves.
 
@@ -817,12 +904,24 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
     payload = {
         "schema_version": P4_SITE_SCHEMA,
         "protocol": "P4",
-        "task": "T1",
+        "tasks": list(P4_TASKS),
         "aggregation": "cost_sweep",
         "x": P4_X,
         "grids": {name: list(grid) for name, grid in P4_CONDITION_GRIDS.items()},
         "core_thresholds": [round(1 - c / P4_X, 4)
                             for c in P4_CONDITION_GRIDS["core"]],
+        # The convention behind the per-task board metrics (see
+        # p4_board_metrics): named here so the site can quote it verbatim.
+        "metric_semantics": (
+            "P4 board metrics: accuracy is modal-verdict accuracy over the "
+            "five cost-level calls per item (P2's modal convention); AUROC "
+            "and SP AURC threshold the item's implied-confidence bin index "
+            "(answers at k of 5 levels) and are exact ordinal statistics; "
+            "Brier and ECE map bin k to the midpoint of its implied interval "
+            "(bounds 0, the sorted rational thresholds 1-c/X, then 1 -> "
+            "midpoints .275/.60/.70/.80/.90/.975) with ECE taken over the "
+            "six bins directly - a stated bin-midpoint convention, not an "
+            "elicited probability."),
         "qualification": {
             "anchor_cost": P4_ANCHOR_COST,
             "gains_cost": P4_GAINS_COST,
@@ -853,7 +952,9 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
     config_hashes = payload["generated_from"]["config_hashes"]
     by_model = {}
     for run_id in qual_ids:
-        manifest, condition, rows = p4_run_receipts(
+        # Qualification is the model-level gate: its cells are task-agnostic
+        # (historically T1 receipts), so the run's task is not read here.
+        manifest, condition, _, rows = p4_run_receipts(
             run_id, ("anchor", "dominance"))
         config_hashes[run_id] = manifest.get("config_hash")
         slots = by_model.setdefault(manifest["model"], {})
@@ -869,16 +970,19 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
                  f"unexpected {sorted(roster - set(P4_EXPECTED_CLASSES))}")
 
     p4_mod = load_p4_score_module()
+    score_mod = load_score_module()
+    items_by_id = {row["item_id"]: row for row in read_jsonl(items_path)}
     core_by_model = {}
     for run_id in core_ids:
-        manifest, _, _ = p4_run_receipts(run_id, ("core",))
+        manifest, _, task, rows = p4_run_receipts(run_id, ("core",))
         config_hashes[run_id] = manifest.get("config_hash")
         model = manifest["model"]
         if model not in by_model:
             sys.exit(f"p4 core run {run_id!r} has no qualification runs for "
                      f"{model!r}")
-        if model in core_by_model:
-            sys.exit(f"p4 registry lists two core runs for {model!r}")
+        slots = core_by_model.setdefault(model, {})
+        if task in slots:
+            sys.exit(f"p4 registry lists two {task} core runs for {model!r}")
         scores = p4_mod.score_run(BENCH / "runs" / run_id, items_path,
                                   draws, seed)
         counts = scores["counts"]
@@ -886,7 +990,10 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
             sys.exit(f"p4 core run {run_id!r} parsed {counts['parsed']} of "
                      f"{counts['planned']} planned calls; the core curve "
                      "requires the whole rectangle")
-        core_by_model[model] = {
+        slots[task] = {
+            "metrics": p4_board_metrics(
+                score_mod, rows, P4_CONDITION_GRIDS["core"], items_by_id,
+                run_id),
             "run_id": run_id,
             "n_items": counts["items"],
             "monotone_violations": scores["monotonicity"]["violations"],
@@ -924,7 +1031,10 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
             "model": model,
             "class": computed,
             "qual": {"c1": c1, "gains": gains},
-            "core": core_by_model.get(model),
+            # One slot per task, null where no core run is registered — a
+            # ragged roster is a fact of the programme, not a defect.
+            "core": {task: core_by_model.get(model, {}).get(task)
+                     for task in P4_TASKS},
         })
     models.sort(key=lambda row: (
         class_rank[row["class"]],
@@ -933,6 +1043,23 @@ def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
     payload["models"] = models
     payload["generated_from"]["config_hashes"] = dict(
         sorted(config_hashes.items()))
+    return payload
+
+
+def write_p4_site_data(p4_registry, items_path, lib_out):
+    """Write the site's p4.json. Byte-deterministic (sort_keys, stable model
+    order, no timestamps), so a double export must compare equal."""
+    payload = p4_site_data(p4_registry, items_path)
+    lib_out.mkdir(parents=True, exist_ok=True)
+    (lib_out / "p4.json").write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":"),
+                   sort_keys=True), encoding="utf-8")
+    n_curves = sum(1 for row in payload["models"]
+                   for task in P4_TASKS if row["core"][task])
+    print(f"exported P4 deferral surface: {len(payload['models'])} model(s), "
+          f"{sum(1 for row in payload['models'] if row['class'] != 'payoff_blind')} "
+          f"pass qualification, {n_curves} core curve(s) across "
+          f"{len(P4_TASKS)} task slot(s)")
     return payload
 
 
@@ -2035,12 +2162,24 @@ def main():
     ap.add_argument("--site", type=pathlib.Path, default=DEFAULT_SITE,
                     help="SvelteKit project root (default: site/)")
     ap.add_argument("--items", type=pathlib.Path, default=BENCH / "items.jsonl")
+    ap.add_argument("--p4-only", action="store_true",
+                    help="write src/lib/data/p4.json from the registry's p4 block "
+                         "and stop. The P4 surface has its own registry block and "
+                         "receipts, so it can be refreshed alone while an active "
+                         "P1-P3 run is mid-top-up and the full chain refuses.")
     args = ap.parse_args()
     lib_out = args.site / "src" / "lib" / "data"
     static_out = args.site / "static" / "data"
 
     if not args.items.exists():
         sys.exit(f"no item bank at {args.items}")
+
+    if args.p4_only:
+        active_results = load_active_results()
+        print(f"p4-only export: {len(active_results['p4']['core_run_ids'])} core / "
+              f"{len(active_results['p4']['qualification_run_ids'])} qualification run(s)")
+        write_p4_site_data(active_results["p4"], args.items, lib_out)
+        return
 
     run_mod = load_run_module()
     urls = case_urls()
@@ -2245,17 +2384,8 @@ def main():
               + (": " + ", ".join(f"{r['item_id']} ({r['reason']})" for r in a["absent"])
                  if a["absent"] else ""))
 
-    # P4 rides its own registry block and scorer; the write is byte-
-    # deterministic (sort_keys, stable model order, no timestamps) so a
-    # double export must compare equal.
-    p4_payload = p4_site_data(active_results["p4"], args.items)
-    (lib_out / "p4.json").write_text(
-        json.dumps(p4_payload, ensure_ascii=False, separators=(",", ":"),
-                   sort_keys=True), encoding="utf-8")
-    print(f"exported P4 deferral surface: {len(p4_payload['models'])} model(s), "
-          f"{sum(1 for row in p4_payload['models'] if row['class'] != 'payoff_blind')} "
-          f"pass qualification, "
-          f"{sum(1 for row in p4_payload['models'] if row['core'])} core curve(s)")
+    # P4 rides its own registry block and scorer.
+    write_p4_site_data(active_results["p4"], args.items, lib_out)
 
     meta = {
         "generated_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
