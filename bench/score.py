@@ -29,8 +29,9 @@ land on the same axis and SP evaluates deployment from any signal:
 
 SP — offline selective prediction (risk–coverage over any protocol's
 confidence signal): coverage, selective risk and AURC. It makes no provider
-call. SP was formerly presented as P4; the P4 label is reserved for a planned
-incentivized-deferral protocol.
+call. SP was formerly presented as P4; the P4 label now names the
+incentivized-deferral call protocol (bench/P4_SPEC.md, scored by
+bench/p4_score.py; P4 runs enter the registry only after qualification).
 
 Archived response-only and ``pmcpa.zero-provider.v1`` files keep their original
 names: legacy P2 is stated confidence, legacy P1 is repeated verdicts, and
@@ -87,6 +88,13 @@ P3_AGGREGATION = "linear_probability_pool"
 # artifacts use P3; the old planner file and paid rows must remain byte-stable.
 P1R_AGGREGATION = P3_AGGREGATION
 OFFLINE_SELECTIVE = "offline_selective_prediction"
+# Claimed 2026-08-16 by the incentivized-deferral protocol (bench/P4_SPEC.md):
+# per-call payoff instruction, answer/refer decision, cost-level sweep.
+# Scoring lives in bench/p4_score.py; P4 runs stay OUT of the active-results
+# registry until a model passes the payoff-sensitivity qualification test
+# (P4_SPEC.md 8b) and its arm is explicitly promoted.
+INCENTIVIZED_DEFERRAL = "incentivized_deferral"
+P4_AGGREGATION = "cost_sweep"
 PROTOCOL_RESOLUTION_SCHEMA = "pmcpa.protocol-resolution.v1"
 LEGACY_P1R_MAPPING_ID = "pmcpa.protocol-alias.p1-repeated-to-p3.v1"
 P3_CONFIG_EQUIVALENCE_FIELDS = (
@@ -137,9 +145,11 @@ def resolve_protocol(protocol, run_contract, protocol_condition=None):
             "P2": RESAMPLING,
             "P3": REPEATED_STATED,
             # SP (formerly P4) is the offline selective-prediction analysis.
-            # "P4" is deliberately absent: the label is reserved for a planned
-            # incentivized-deferral call protocol and must not resolve here.
             "SP": OFFLINE_SELECTIVE,
+            # P4 was reserved from the 2026-08-16 SP rename until the
+            # incentivized-deferral protocol was specified; claimed the same
+            # day by bench/P4_SPEC.md + bench/p4_plan.py.
+            "P4": INCENTIVIZED_DEFERRAL,
         }
         try:
             semantics = mapping[protocol]
@@ -2109,10 +2119,12 @@ def self_test():
         and protocol_semantics("P2", None) == STATED
         and protocol_semantics("P3", None) == LEGACY_REVEALED_PREFERENCE
     )
-    # "P4" is reserved for a planned incentivized-deferral protocol and must
-    # not resolve in the active namespace until that protocol is defined.
+    # P4 resolves ONLY in the active namespace (claimed 2026-08-16 by the
+    # incentivized-deferral protocol); the legacy namespace never had a P4.
+    namespace_ok = namespace_ok and (
+        protocol_semantics("P4", ACTIVE_RUN_CONTRACT) == INCENTIVIZED_DEFERRAL)
     try:
-        protocol_semantics("P4", ACTIVE_RUN_CONTRACT)
+        protocol_semantics("P4", None)
         namespace_ok = False
     except ValueError:
         pass
@@ -2120,8 +2132,8 @@ def self_test():
         failures.append(("protocol namespace mapping", None,
                          "active and archived identifiers remain distinct", None, None))
     print(f"\nProtocol namespace mapping\n  {'ok' if namespace_ok else 'FAIL'}  "
-          "active P1/P2/P3 + SP, explicit P1R alias, reserved P4, and legacy "
-          "ids remain distinct")
+          "active P1/P2/P3/P4 + SP, explicit P1R alias, and legacy ids "
+          "remain distinct")
 
     horizon_plan = [
         {"task": "T1", "task_rank": rank} for rank in (1, 3)
