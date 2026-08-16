@@ -279,15 +279,20 @@ def validate_canonical_row(row: dict[str, Any]) -> None:
     _validate_schema(schema, f"{call_id}.schema")
     props = schema["properties"]
     if protocol == "P4":
-        wanted = {"decision", "answer"}
+        # the stated variant elicits P1's probability ahead of the decision
+        wanted = ({"probability", "decision", "answer"}
+                  if "probability" in props else {"decision", "answer"})
     elif protocol in ("P1", "P3"):
         wanted = {"answer", "probability"}
     else:
         wanted = {"answer"}
     if set(props) != wanted or set(schema["required"]) != wanted:
         raise AdapterError(f"{call_id}: {protocol} output fields mismatch")
-    if protocol == "P4" and props["decision"].get("enum") != P4_DECISIONS:
-        raise AdapterError(f"{call_id}: P4 decision enum mismatch")
+    if protocol == "P4":
+        if props["decision"].get("enum") != P4_DECISIONS:
+            raise AdapterError(f"{call_id}: P4 decision enum mismatch")
+        if "probability" in props and props["probability"].get("type") != "number":
+            raise AdapterError(f"{call_id}: P4 stated probability must be numeric")
     if props["answer"].get("enum") != EXPECTED_ANSWERS[task]:
         raise AdapterError(f"{call_id}: answer enum does not match task")
     if protocol in ("P1", "P3") and props["probability"].get("type") != "number":

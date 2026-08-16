@@ -384,7 +384,9 @@ def validate_canonical_row(row: dict[str, Any]) -> None:
     properties = schema["properties"]
     stated_protocol = protocol in ("P1", "P3")
     if protocol == "P4":
-        expected_fields = {"decision", "answer"}
+        # the stated variant elicits P1's probability ahead of the decision
+        expected_fields = ({"probability", "decision", "answer"}
+                           if "probability" in properties else {"decision", "answer"})
     elif stated_protocol:
         expected_fields = {"answer", "probability"}
     else:
@@ -397,6 +399,9 @@ def validate_canonical_row(row: dict[str, Any]) -> None:
         if (decision_schema.get("type") != "string"
                 or decision_schema.get("enum") != P4_DECISIONS):
             raise AdapterError(f"{call_id}: P4 decision schema mismatch")
+        if ("probability" in properties
+                and properties["probability"].get("type") != "number"):
+            raise AdapterError(f"{call_id}: P4 stated probability must be numeric")
     answer_schema = properties["answer"]
     if (answer_schema.get("type") != "string"
             or answer_schema.get("enum") != EXPECTED_ANSWERS[task]):

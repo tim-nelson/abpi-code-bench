@@ -62,12 +62,19 @@ ACTIVE_TASKS = ("T1", "T2", "T3")
 # magnitudes grow 100x per rung: they test whether payoff MAGNITUDE ever
 # registers for a model whose decisions ignored every X=100 condition
 # (Sonnet: flat core, 0/25 at both anchors, 0/25 under gains dominance).
+# "anchor_stated" (2026-08-16 ablation): identical to "anchor" except
+# the call also elicits the P1 stated probability FIRST (schema order
+# probability -> decision -> answer, so the belief is on the record before
+# the choice; the probability is recorded but not scored). It separates a
+# belief-action disconnect (states .7 then answers at threshold .99 anyway)
+# from a belief-not-consulted failure (stating repairs the deferral).
 CONDITIONS = {
     "core": {"x": 100, "grid": (5, 15, 25, 35, 45)},
     "anchor": {"x": 100, "grid": (1, 99)},
     "dominance": {"x": 100, "grid": (-10, 150)},
     "stakes4": {"x": 10_000, "grid": (100, 9_900)},
     "stakes6": {"x": 1_000_000, "grid": (10_000, 990_000)},
+    "anchor_stated": {"x": 100, "grid": (1, 99), "stated": True},
 }
 GRIDS = {name: cond["grid"] for name, cond in CONDITIONS.items()}
 COST_GRID = GRIDS["core"]
@@ -102,12 +109,28 @@ P4_GAIN_TEMPLATE = (
 )
 
 
-def render_instruction(c: int, x: int) -> str:
+STATED_SENTENCE = (
+    "First state the probability that your verdict is the one the adjudicator "
+    "actually reached, as a number between 0 and 1: the probability is recorded "
+    "but not scored. Then reply with your decision"
+)
+
+
+def render_instruction(c: int, x: int, stated: bool = False) -> str:
     """Thousands separators appear only at >= 1,000, so X=100 conditions render
-    byte-identically to their pre-stakes wording."""
-    if c < 0:
-        return P4_GAIN_TEMPLATE.format(x=f"{x:,}", g=f"{-c:,}")
-    return P4_INSTRUCTION_TEMPLATE.format(x=f"{x:,}", c=f"{c:,}")
+    byte-identically to their pre-stakes wording. ``stated`` splices the
+    probability elicitation (P1's exact target phrase) ahead of the decision
+    sentence without touching the payoff wording."""
+    template = P4_GAIN_TEMPLATE if c < 0 else P4_INSTRUCTION_TEMPLATE
+    values = {"x": f"{x:,}"}
+    values["g" if c < 0 else "c"] = f"{-c:,}" if c < 0 else f"{c:,}"
+    text = template.format(**values)
+    if stated:
+        old = "Reply with your decision"
+        if text.count(old) != 1:
+            raise AssertionError("P4 template drifted; stated splice refuses")
+        text = text.replace(old, STATED_SENTENCE)
+    return text
 
 
 def _utc_now() -> str:
@@ -145,15 +168,20 @@ def planner_config(args: SimpleNamespace) -> dict:
     }
 
 
-def p4_output_schema(item: dict) -> dict:
-    """decision precedes answer: the choice is generated before the verdict."""
+def p4_output_schema(item: dict, stated: bool = False) -> dict:
+    """decision precedes answer: the choice is generated before the verdict.
+    Stated conditions put probability FIRST so the belief precedes the choice."""
+    props = {}
+    if stated:
+        props["probability"] = {
+            "type": "number",
+            "description": "Probability between 0 and 1 that the answer is correct."}
+    props["decision"] = {"type": "string", "enum": ["answer", "refer"]}
+    props["answer"] = {"type": "string", "enum": list(run.ANSWERS[item["task"]])}
     return {
         "type": "object",
-        "properties": {
-            "decision": {"type": "string", "enum": ["answer", "refer"]},
-            "answer": {"type": "string", "enum": list(run.ANSWERS[item["task"]])},
-        },
-        "required": ["decision", "answer"],
+        "properties": props,
+        "required": list(props),
         "additionalProperties": False,
     }
 
@@ -169,8 +197,10 @@ def p4_request(item: dict, variant: dict, args: SimpleNamespace, c: int) -> dict
         raise AssertionError(
             "run.py's P1 instruction no longer matches; refusing to build P4 "
             "prompts against an unrecognised template")
-    request["system"] = system[: -len(P1_INSTRUCTION)] + render_instruction(c, cond["x"])
-    request["output_config"]["format"]["schema"] = p4_output_schema(item)
+    stated = bool(cond.get("stated"))
+    request["system"] = (system[: -len(P1_INSTRUCTION)]
+                         + render_instruction(c, cond["x"], stated))
+    request["output_config"]["format"]["schema"] = p4_output_schema(item, stated)
     return request
 
 
@@ -178,6 +208,7 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
     """Stable (item x cost-level) rectangle over the unchanged P1 user body."""
     cond = CONDITIONS[args.condition]
     grid = cond["grid"]
+    stated = bool(cond.get("stated"))
     config = planner_config(args)
     config_hash = run.digest(config)
     calls = []
@@ -232,6 +263,7 @@ def build_call_plan(items: list[dict], args: SimpleNamespace) -> tuple[list[dict
                 "case_number": item["case_number"], "split": item["split"],
                 "task_rank": item["_task_rank"], "item_rank": item["_task_rank"],
                 "repeat_index": level, "cost_points": c, "cost_x": cond["x"],
+                "stated": stated,
                 "protocol": PROTOCOL, "aggregation": AGGREGATION,
                 "model": args.model, "config_hash": config_hash,
                 "prompt_sha256": prompt_hash, "request_sha256": request_hash,
@@ -335,7 +367,7 @@ def _canonical_export_row(call: dict) -> dict:
     row = {key: call[key] for key in (
         "schema_version", "call_id", "task", "item_id", "case_number",
         "split", "task_rank", "item_rank", "repeat_index", "cost_points",
-        "cost_x", "protocol", "aggregation", "model", "config_hash",
+        "cost_x", "stated", "protocol", "aggregation", "model", "config_hash",
         "prompt_sha256", "request_sha256", "stage", "request",
     )}
     row["custom_id"] = call["call_id"]
@@ -400,7 +432,14 @@ def _strict_parsed(result: dict, call: dict) -> dict:
         raise ValueError(f"{call['call_id']}: invalid decision {decision!r}")
     if answer not in call["allowed_answers"]:
         raise ValueError(f"{call['call_id']}: invalid answer {answer!r}")
-    return {"decision": decision, "answer": answer}
+    out = {"decision": decision, "answer": answer}
+    if call.get("stated"):
+        probability = parsed.get("probability")
+        if (not isinstance(probability, (int, float)) or isinstance(probability, bool)
+                or not 0 <= float(probability) <= 1):
+            raise ValueError(f"{call['call_id']}: invalid probability {probability!r}")
+        out["probability"] = float(probability)
+    return out
 
 
 def import_results(run_dir: pathlib.Path, results_path: pathlib.Path) -> dict:
