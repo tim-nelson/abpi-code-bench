@@ -27,5 +27,38 @@
   "grok-4.6-default-p3"
  ],
  "leaderboard_boards": [],
- "leaderboard_excluded": []
+ "leaderboard_excluded": [],
+ "p4": {
+  "core_run_ids": [
+   "claude-sonnet-5-medium-p4",
+   "gpt-5.6-sol-medium-p4",
+   "gpt-5.6-luna-medium-p4",
+   "gpt-5.6-terra-medium-p4",
+   "grok-4.6-default-p4"
+  ],
+  "qualification_run_ids": [
+   "claude-sonnet-5-medium-p4-anchor",
+   "claude-sonnet-5-medium-p4-dominance",
+   "gpt-5.6-sol-medium-p4-anchor",
+   "gpt-5.6-sol-medium-p4-dominance",
+   "gpt-5.6-luna-medium-p4-anchor",
+   "gpt-5.6-luna-medium-p4-dominance",
+   "gpt-5.6-terra-medium-p4-anchor",
+   "gpt-5.6-terra-medium-p4-dominance",
+   "claude-haiku-4-5-20251001-p4-anchor",
+   "claude-haiku-4-5-20251001-p4-dominance",
+   "claude-opus-5-medium-p4-anchor",
+   "claude-opus-5-medium-p4-dominance",
+   "gemini-3.7-flash-or-default-p4-anchor",
+   "gemini-3.7-flash-or-default-p4-dominance",
+   "glm-5.2-default-p4-anchor",
+   "glm-5.2-default-p4-dominance",
+   "deepseek-v4-pro-default-p4-anchor",
+   "deepseek-v4-pro-default-p4-dominance",
+   "kimi-k3-default-p4-anchor",
+   "kimi-k3-default-p4-dominance",
+   "grok-4.6-default-p4-anchor",
+   "grok-4.6-default-p4-dominance"
+  ]
+ }
 }

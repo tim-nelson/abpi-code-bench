@@ -273,7 +273,7 @@ def load_active_results(path=ACTIVE_RESULTS_PATH):
         "leaderboard_excluded": [],
     }
     if not path.exists():
-        return empty
+        return {**empty, "p4": {"core_run_ids": [], "qualification_run_ids": []}}
     data = json.loads(path.read_text(encoding="utf-8"))
     for key in empty:
         if key not in data:
@@ -297,6 +297,34 @@ def load_active_results(path=ACTIVE_RESULTS_PATH):
     unknown = sorted(referenced - declared)
     if unknown:
         sys.exit(f"{path}: leaderboard references run(s) not activated: {unknown}")
+
+    # The P4 block is a separate publication surface with its own scorer
+    # (bench/p4_score.py). Its runs must never enter active_run_ids: score.py
+    # cannot read a cost_sweep run, and an apparently active P4 id would fail
+    # the ordinary refresh in a misleading place.
+    p4 = data.get("p4")
+    if p4 is None:
+        data["p4"] = {"core_run_ids": [], "qualification_run_ids": []}
+    else:
+        if not isinstance(p4, dict):
+            sys.exit(f"{path}: p4 must be a JSON object")
+        p4_keys = {"core_run_ids", "qualification_run_ids"}
+        unknown_p4 = sorted(set(p4) - p4_keys)
+        if unknown_p4:
+            sys.exit(f"{path}: unknown p4 registry key(s): {unknown_p4}")
+        for key in sorted(p4_keys):
+            ids = p4.get(key)
+            if (not isinstance(ids, list)
+                    or any(not isinstance(r, str) or not r for r in ids)):
+                sys.exit(f"{path}: p4.{key} must be a list of non-empty strings")
+            if len(ids) != len(set(ids)):
+                sys.exit(f"{path}: p4.{key} contains a duplicate")
+        overlap = sorted(
+            (set(p4["core_run_ids"]) | set(p4["qualification_run_ids"]))
+            & set(run_ids))
+        if overlap:
+            sys.exit(f"{path}: P4 run(s) may not enter active_run_ids — the "
+                     f"P1-P3 scorer cannot read them: {overlap}")
     return data
 
 
@@ -636,6 +664,275 @@ def collect_runs(active_run_ids, current_items_path=None):
         })
     runs.sort(key=lambda r: (r.get("created_utc") or "", r["run_id"]))
     return runs
+
+
+# --- P4 incentivized deferral (own scorer, own surface) -----------------------
+# P4 reads confidence off answer/refer decisions under explicit costs
+# (bench/P4_SPEC.md). Its runs are registered under the registry's `p4` block,
+# never under active_run_ids, and are scored by bench/p4_score.py. The
+# payoff-sensitivity qualification of P4_SPEC.md 8b is recomputed here at
+# export time from the anchor/dominance receipts themselves; the implied-
+# confidence reading of a core deferral curve is licensed only for models
+# that pass it.
+
+P4_SITE_SCHEMA = "pmcpa.site-p4.v1"
+P4_X = 100
+P4_CONDITION_GRIDS = {
+    "core": (5, 15, 25, 35, 45),
+    "anchor": (1, 99),
+    "dominance": (-10, 150),
+}
+P4_ANCHOR_COST = 1    # rational threshold .99
+P4_GAINS_COST = -10   # referring GAINS 10 points: 100% deferral is the only rational rate
+P4_CLASSES = ("responsive", "weakly_responsive", "payoff_blind")
+# Classes are thresholded on the anchor c=1 deferral rate. FINDINGS 0.4: the
+# c=1 anchor is the discriminating cell — every model that defers at all still
+# violates gains-dominance, and gemini-3.7-flash defers under gains while its
+# anchor row is blind, so the gains cell is reported but does not classify.
+P4_RESPONSIVE_MIN_C1 = 0.40
+P4_BLIND_MAX_C1 = 0.05
+# Ground truth: the qualification table of docs/FINDINGS.md 0.4 (2026-08-16).
+# Every cell is recomputed from receipts; a computed class that contradicts
+# this table refuses to publish rather than silently rewriting the finding.
+P4_EXPECTED_CLASSES = {
+    "gpt-5.6-luna": "responsive",
+    "gpt-5.6-sol": "responsive",
+    "gpt-5.6-terra": "responsive",
+    "grok-4.6": "weakly_responsive",
+    "moonshotai/kimi-k3": "weakly_responsive",
+    "claude-opus-5": "payoff_blind",
+    "google/gemini-3.7-flash": "payoff_blind",
+    "z-ai/glm-5.2": "payoff_blind",
+    "deepseek/deepseek-v4-pro": "payoff_blind",
+    "claude-sonnet-5": "payoff_blind",
+    "claude-haiku-4-5-20251001": "payoff_blind",
+}
+
+
+def load_p4_score_module():
+    """Import bench/p4_score.py so core metrics are the P4 scorer's, not a copy."""
+    spec = importlib.util.spec_from_file_location(
+        "bench_p4_score", BENCH / "p4_score.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def p4_run_receipts(run_id, allowed_conditions):
+    """Manifest plus verified parsed decisions for one registered P4 run.
+
+    Fail-closed structural checks: the directory and manifest exist; the run
+    is P4/cost_sweep on the named condition's exact (X, grid); every receipt
+    joins a catalogued request, carries one parsed answer/refer decision and
+    names a unique (item, cost level). Quarantined calls have no receipt row
+    by design (Kimi/GLM truncations, FINDINGS 0.4's dagger note): parsed
+    counts are the denominators, and full-rectangle completeness is enforced
+    by the caller only where the core curve requires it.
+    """
+    run_dir = BENCH / "runs" / run_id
+    if not run_dir.is_dir():
+        sys.exit(f"p4 registry run {run_id!r} has no directory at {run_dir}")
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        sys.exit(f"p4 registry run {run_id!r} is missing manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    condition = manifest.get("condition")
+    if condition is None and "core" in allowed_conditions:
+        # The two pilot core dirs predate named conditions (P4_SPEC.md 8b)
+        # and carry condition null on the identical (X, grid) pair.
+        condition = "core"
+    if condition not in allowed_conditions:
+        sys.exit(f"p4 registry run {run_id!r} has condition "
+                 f"{manifest.get('condition')!r}; expected one of "
+                 f"{sorted(allowed_conditions)}")
+    defects = []
+    if (manifest.get("protocol"), manifest.get("aggregation")) != ("P4", "cost_sweep"):
+        defects.append(f"protocol/aggregation={manifest.get('protocol')!r}/"
+                       f"{manifest.get('aggregation')!r} (want P4/cost_sweep)")
+    grid = tuple(manifest.get("cost_grid") or ())
+    if grid != P4_CONDITION_GRIDS[condition] or int(manifest.get("cost_x") or 0) != P4_X:
+        defects.append(f"grid/X={list(grid)}/{manifest.get('cost_x')} (want "
+                       f"{list(P4_CONDITION_GRIDS[condition])}/{P4_X})")
+    requests_path = run_dir / "requests.jsonl"
+    responses_path = run_dir / "responses.jsonl"
+    for path in (requests_path, responses_path):
+        if not path.exists():
+            sys.exit(f"p4 registry run {run_id!r} is missing {path.name}")
+    request_ids = {row["call_id"] for row in read_jsonl(requests_path)}
+    if len(request_ids) != manifest.get("n_calls_planned"):
+        defects.append(f"request catalog holds {len(request_ids)} calls; "
+                       f"manifest plans {manifest.get('n_calls_planned')}")
+    rows, seen_calls, seen_cells = [], set(), set()
+    for receipt in read_jsonl(responses_path):
+        call_id = receipt.get("call_id")
+        if call_id not in request_ids:
+            defects.append(f"orphan receipt {call_id!r}")
+            continue
+        if call_id in seen_calls:
+            defects.append(f"duplicate receipt {call_id!r}")
+            continue
+        seen_calls.add(call_id)
+        parsed = receipt.get("parsed") or {}
+        if parsed.get("decision") not in ("answer", "refer"):
+            defects.append(f"receipt {call_id!r} has no parsed answer/refer decision")
+            continue
+        cell = (receipt.get("item_id"), receipt.get("cost_points"))
+        if cell in seen_cells:
+            defects.append(f"duplicate (item, cost) receipt {cell!r}")
+            continue
+        seen_cells.add(cell)
+        rows.append({"item_id": receipt["item_id"],
+                     "cost_points": receipt["cost_points"],
+                     "decision": parsed["decision"]})
+    if defects:
+        sys.exit(f"p4 registry run {run_id!r} failed receipt verification: "
+                 + "; ".join(defects))
+    return manifest, condition, rows
+
+
+def p4_deferral_cell(rows, cost):
+    """{refer, n} at one cost level, over parsed decisions only."""
+    at = [row for row in rows if row["cost_points"] == cost]
+    return {"refer": sum(1 for row in at if row["decision"] == "refer"),
+            "n": len(at)}
+
+
+def p4_classify(c1_rate):
+    if c1_rate >= P4_RESPONSIVE_MIN_C1:
+        return "responsive"
+    if c1_rate <= P4_BLIND_MAX_C1:
+        return "payoff_blind"
+    return "weakly_responsive"
+
+
+def p4_site_data(p4_registry, items_path, draws=1000, seed="pmcpa-bench"):
+    """The site's P4 surface: qualification cells, classes and core curves.
+
+    Deterministic in its inputs (receipts, item bank, registry) — no
+    timestamps, stable ordering — so two exports byte-compare equal.
+    """
+    core_ids = list(p4_registry["core_run_ids"])
+    qual_ids = list(p4_registry["qualification_run_ids"])
+    payload = {
+        "schema_version": P4_SITE_SCHEMA,
+        "protocol": "P4",
+        "task": "T1",
+        "aggregation": "cost_sweep",
+        "x": P4_X,
+        "grids": {name: list(grid) for name, grid in P4_CONDITION_GRIDS.items()},
+        "core_thresholds": [round(1 - c / P4_X, 4)
+                            for c in P4_CONDITION_GRIDS["core"]],
+        "qualification": {
+            "anchor_cost": P4_ANCHOR_COST,
+            "gains_cost": P4_GAINS_COST,
+            "classes": list(P4_CLASSES),
+            "rule": {
+                "cell": "anchor_c1_deferral_rate",
+                "responsive_min": P4_RESPONSIVE_MIN_C1,
+                "payoff_blind_max": P4_BLIND_MAX_C1,
+                "source": "docs/FINDINGS.md 0.4 qualification table (2026-08-16)",
+            },
+        },
+        "models": [],
+        "generated_from": {
+            "registry": {"core_run_ids": core_ids,
+                         "qualification_run_ids": qual_ids},
+            "items_sha256": sha256_of(items_path),
+            "config_hashes": {},
+            "bootstrap": {"draws": draws, "seed": seed},
+        },
+    }
+    if not qual_ids:
+        if core_ids:
+            sys.exit("p4 registry lists core runs without qualification runs; "
+                     "a core curve without the P4_SPEC.md 8b gate licenses an "
+                     "unqualified implied-confidence reading")
+        return payload
+
+    config_hashes = payload["generated_from"]["config_hashes"]
+    by_model = {}
+    for run_id in qual_ids:
+        manifest, condition, rows = p4_run_receipts(
+            run_id, ("anchor", "dominance"))
+        config_hashes[run_id] = manifest.get("config_hash")
+        slots = by_model.setdefault(manifest["model"], {})
+        if condition in slots:
+            sys.exit(f"p4 registry lists two {condition} runs for "
+                     f"{manifest['model']!r}")
+        slots[condition] = rows
+
+    roster = set(by_model)
+    if roster != set(P4_EXPECTED_CLASSES):
+        sys.exit("p4 qualification roster disagrees with docs/FINDINGS.md 0.4: "
+                 f"missing {sorted(set(P4_EXPECTED_CLASSES) - roster)}, "
+                 f"unexpected {sorted(roster - set(P4_EXPECTED_CLASSES))}")
+
+    p4_mod = load_p4_score_module()
+    core_by_model = {}
+    for run_id in core_ids:
+        manifest, _, _ = p4_run_receipts(run_id, ("core",))
+        config_hashes[run_id] = manifest.get("config_hash")
+        model = manifest["model"]
+        if model not in by_model:
+            sys.exit(f"p4 core run {run_id!r} has no qualification runs for "
+                     f"{model!r}")
+        if model in core_by_model:
+            sys.exit(f"p4 registry lists two core runs for {model!r}")
+        scores = p4_mod.score_run(BENCH / "runs" / run_id, items_path,
+                                  draws, seed)
+        counts = scores["counts"]
+        if counts["parsed"] != counts["planned"]:
+            sys.exit(f"p4 core run {run_id!r} parsed {counts['parsed']} of "
+                     f"{counts['planned']} planned calls; the core curve "
+                     "requires the whole rectangle")
+        core_by_model[model] = {
+            "run_id": run_id,
+            "n_items": counts["items"],
+            "monotone_violations": scores["monotonicity"]["violations"],
+            "levels": [
+                {"c": c,
+                 "threshold": round(1 - c / P4_X, 4),
+                 "deferral_rate": scores["levels"][str(c)]["deferral_rate"],
+                 "mean_loss": scores["levels"][str(c)]["mean_loss"]}
+                for c in P4_CONDITION_GRIDS["core"]
+            ],
+        }
+
+    class_rank = {name: rank for rank, name in enumerate(P4_CLASSES)}
+    models = []
+    for model in sorted(by_model):
+        slots = by_model[model]
+        missing = sorted(c for c in ("anchor", "dominance") if c not in slots)
+        if missing:
+            sys.exit(f"p4 qualification for {model!r} is missing {missing}")
+        c1 = p4_deferral_cell(slots["anchor"], P4_ANCHOR_COST)
+        gains = p4_deferral_cell(slots["dominance"], P4_GAINS_COST)
+        for name, cell in (("anchor c=1", c1), ("gains", gains)):
+            if not cell["n"]:
+                sys.exit(f"p4 qualification for {model!r} has no parsed "
+                         f"decisions at the {name} level")
+        computed = p4_classify(c1["refer"] / c1["n"])
+        expected = P4_EXPECTED_CLASSES[model]
+        if computed != expected:
+            sys.exit(
+                f"p4 classification for {model!r} computed {computed!r} from "
+                f"anchor c=1 deferral {c1['refer']}/{c1['n']}, but "
+                f"docs/FINDINGS.md 0.4 records {expected!r}. Receipts and the "
+                "findings table disagree; resolve that before publishing")
+        models.append({
+            "model": model,
+            "class": computed,
+            "qual": {"c1": c1, "gains": gains},
+            "core": core_by_model.get(model),
+        })
+    models.sort(key=lambda row: (
+        class_rank[row["class"]],
+        -(row["qual"]["c1"]["refer"] / row["qual"]["c1"]["n"]),
+        row["model"]))
+    payload["models"] = models
+    payload["generated_from"]["config_hashes"] = dict(
+        sorted(config_hashes.items()))
+    return payload
 
 
 # --- archived runs against a bank that has moved ------------------------------
@@ -1946,6 +2243,18 @@ def main():
               f"archived, {a['n_mapped']} id(s) mapped, {a['n_absent']} absent"
               + (": " + ", ".join(f"{r['item_id']} ({r['reason']})" for r in a["absent"])
                  if a["absent"] else ""))
+
+    # P4 rides its own registry block and scorer; the write is byte-
+    # deterministic (sort_keys, stable model order, no timestamps) so a
+    # double export must compare equal.
+    p4_payload = p4_site_data(active_results["p4"], args.items)
+    (lib_out / "p4.json").write_text(
+        json.dumps(p4_payload, ensure_ascii=False, separators=(",", ":"),
+                   sort_keys=True), encoding="utf-8")
+    print(f"exported P4 deferral surface: {len(p4_payload['models'])} model(s), "
+          f"{sum(1 for row in p4_payload['models'] if row['class'] != 'payoff_blind')} "
+          f"pass qualification, "
+          f"{sum(1 for row in p4_payload['models'] if row['core'])} core curve(s)")
 
     meta = {
         "generated_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
