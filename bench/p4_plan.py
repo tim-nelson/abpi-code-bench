@@ -55,11 +55,11 @@ P1_INSTRUCTION = run.PROTOCOL_INSTRUCTION["P1"]
 # refer-and-hope loophole closed, and no decision rule, base rate or
 # probability vocabulary anywhere.
 P4_INSTRUCTION_TEMPLATE = (
-    "Your response is scored. If you give your own verdict and it matches the one the "
+    "Your response is scored. If you answer and your verdict matches the one the "
     "adjudicator actually reached, you lose 0 points; if it does not match, you lose "
     "{x} points. Alternatively you may refer the case to a specialist reviewer, whose "
     "verdict is always correct; a referral loses {c} points whatever the reviewer finds. "
-    "Reply with your decision - 'answer' to stand by your own verdict, or 'refer' to "
+    "Reply with your decision - 'answer' to stand by your verdict, or 'refer' to "
     "send the case to the reviewer - and your verdict either way. A referred verdict is "
     "recorded but not scored. Do not explain."
 )

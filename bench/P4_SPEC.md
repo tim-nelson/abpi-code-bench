@@ -61,20 +61,29 @@ P4 instruction template (c substituted as an integer; hyphen style matches the
 existing instructions):
 
 ```
-Your response is scored. If you give your own verdict and it matches the one
-the adjudicator actually reached, you lose 0 points; if it does not match,
-you lose 100 points. Alternatively you may refer the case to a specialist
+Your response is scored. If you answer and your verdict matches the one the
+adjudicator actually reached, you lose 0 points; if it does not match, you
+lose 100 points. Alternatively you may refer the case to a specialist
 reviewer, whose verdict is always correct; a referral loses {c} points
 whatever the reviewer finds. Reply with your decision - 'answer' to stand by
-your own verdict, or 'refer' to send the case to the reviewer - and your
-verdict either way. A referred verdict is recorded but not scored. Do not
-explain.
+your verdict, or 'refer' to send the case to the reviewer - and your verdict
+either way. A referred verdict is recorded but not scored. Do not explain.
 ```
 
 Wording receipts:
 
+- "If you answer" keys the payoff to the decision itself. The model always
+  supplies a verdict ("your verdict either way"), so conditioning the score
+  on "giving a verdict" would be vacuous; conditioning on the answer/refer
+  choice is exact. (2026-08-16 wording review: "your own verdict"
+  tightened to "your verdict" in both places; this clause tightened from
+  "If you give your own verdict".)
 - "the one the adjudicator actually reached" is P1's own target phrase,
-  unchanged, so P1 and P4 score the same event.
+  unchanged, so P1 and P4 score the same event. "actually" is retained
+  deliberately: it pins the predictive reading - the historical fact of the
+  ruling, not the verdict the model believes is right - and P1/P4 must name
+  that event identically for the stated-vs-revealed comparison to be about
+  elicitation, not target wording.
 - Payoffs are stated as losses from 0 (not gains) because the deferral
   decision is a loss-minimisation; a mixed gain/loss frame would add a second
   framing axis to the measurand.
@@ -130,7 +139,13 @@ canonical JSON, never edits it, and records both `runner_sha256` and its own
   informative.
 - **Calls**: 5 cost levels × 100 items = 500 per model, plus a smoke of
   rank 1 × 5 levels (5 calls) per model, inspected before growing — the
-  standing begin-with-rank-1 rule.
+  standing begin-with-rank-1 rule. The smoke checks schema compliance and
+  decision sanity only; one item cannot locate the switch region. The
+  pilot's own deferral curve is the instrument for where costs start to
+  bite — if all switching lands between adjacent grid points (plausibly
+  c=5 and c=15, given stated-confidence mass at .85–.97), a denser grid is
+  a legitimate follow-up, but as a NEW protocol condition with its own
+  config hash, never a mid-run grid edit.
 - **Transport**: both via existing batch adapters
   (`providers/anthropic_messages.py`, `providers/openai_responses.py`), 50%
   batch discount, `--execute` gated, missing-only resume.
@@ -160,13 +175,23 @@ Primary, aggregate:
    realized accuracy vs the bin interval, side by side with P1 stated
    probability binned identically — revealed vs stated calibration, the
    legacy lottery pilot's question done properly.
+5. **Revealed discrimination, scale-free** (2026-08-16, the cost-to-
+   confidence scaling question): AUROC treating the item's implied-confidence
+   bin index as the score, next to P1's stated-probability AUROC on the same
+   items. A framing distortion (e.g. loss aversion pushing every decision
+   toward referral) shifts the implied-confidence LEVEL but preserves the
+   ordering, so AUROC isolates whether the revealed signal ranks correctness
+   at all, while the bin-vs-accuracy table from (4) shows how far the level
+   is displaced. An isotonic fit of accuracy on bin index quantifies that
+   displacement as the best monotone per-model rescaling of the cost axis
+   onto a comparable confidence scale.
 
 Secondary, descriptive:
 
-5. **Monotonicity violations**: share of items whose five decisions are not
+6. **Monotonicity violations**: share of items whose five decisions are not
    of the form "refer below some c, answer above" (6 of 32 patterns are
    monotone). This is the reliability check on the revealed measure itself.
-6. Case/sibling-blocked bootstrap CIs as everywhere else; report planned/
+7. Case/sibling-blocked bootstrap CIs as everywhere else; report planned/
    attempted/parsed/quarantined counts; no opportunistic subsets.
 
 Scoring integration: `protocol_semantics("P4", ACTIVE_RUN_CONTRACT)` gains an
