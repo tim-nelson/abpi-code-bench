@@ -221,6 +221,28 @@ ceiling below allows 2× output.
 Maximum call count if approved at N=100: 1,010 planned + retries of
 failed/missing only; hard cap 1,100.
 
+## 8b. Named conditions and the qualification ladder (added 2026-08-16
+## after the pilot)
+
+Conditions live in `p4_plan.CONDITIONS` as code-level (X, grid) pairs —
+never CLI numbers — each with its own config hash and run directories:
+
+| condition | X | grid | purpose |
+|---|---|---|---|
+| core | 100 | 5,15,25,35,45 | the measurement grid (thresholds .95–.55) |
+| anchor | 100 | 1,99 | near-degenerate thresholds .99/.01 |
+| dominance | 100 | −10,150 | strict-dominance pair; negative c renders the gains template |
+| stakes4 | 10⁴ | 100,9900 | anchor thresholds at 100× magnitude |
+| stakes6 | 10⁶ | 10⁴,99·10⁴ | anchor thresholds at 10,000× magnitude |
+
+Ladder verdict (2026-08-16, n=25/condition, receipts in
+`bench/runs/*-p4-*`): claude-sonnet-5 deferred 0/25 in every condition
+including gains-dominance and X=10⁶ — payoff-blind; gpt-5.6-sol responds
+to cost ratios in the loss domain but fails gains-dominance (20% vs the
+rational 100%) and collapses at X=10⁶. Consequence: **anchors + dominance
+are the qualification test** a model must pass before its P4 curve is
+read as implied confidence. Details: FINDINGS §0.4.
+
 ## 9. Explicitly out of scope for the pilot
 
 - T2/T3 arms; other models; N=300; K>5 cost levels.
