@@ -2269,3 +2269,79 @@ planned == catalog with zero pending). The site therefore stays fail-closed
 on the pre-growth scores until the N=200 receipts are imported and the run
 is rescored; this is the gate doing its job, not a defect. Rescore each
 grown run after import to re-bind provenance and clear the gate.
+
+## Operator over-broad growth export (2026-08-16)
+
+Cause: the T3-only horizon extension (T3 100->200) was staged as per-run
+`--tasks T3` batch files, but three resume exports were re-run manually with
+`--tasks T1,T2,T3 --through-items 200`. Because a run directory is a
+cumulative union, this legitimately (per the growth mechanism) grew the T1
+and T2 catalog horizons of three runs from 100 to 200 as well:
+
+- `bench/runs/claude-haiku-4-5-20251001-p1` (P1): +200 over-scope catalog
+  rows (T1 100, T2 100). Its `batch-t3-n200-r2.jsonl` (211 rows: 200
+  over-scope + the 11 missing T3) was attempted by the executor; all 211
+  attempts failed on empty provider credits, so zero over-scope receipts
+  exist and none were ever imported (ledger holds only 389 completed rows,
+  no failed events). $0 over-scope spend.
+- `bench/runs/gemini-3.7-flash-or-default-p3` (P3, K=7): +1,400 over-scope
+  catalog rows (T1 700, T2 700). The executor ran 1,512 calls from the r2
+  batch: 1,097 over-scope T1/T2 receipts (rank>100) plus 415 valid T3
+  receipts. None had been imported; all 1,512 sit in the raw
+  `live-t3-n200-r2.jsonl` only.
+- `bench/runs/grok-4.6-default-p3` (P3, K=7): +1,400 over-scope catalog
+  rows (T1 700, T2 700). The executor ran 281 calls from the r2 batch: 280
+  over-scope T1/T2 receipts plus 1 valid T3 receipt, all unimported, in the
+  raw `live-t3-n200-r2.jsonl` only.
+
+Total over-scope spend roughly $4 (the 1,377 executed flash/grok T1/T2
+calls); the failed haiku attempts cost nothing.
+
+Repair (2026-08-16, approved; no provider calls, nothing deleted):
+
+1. Catalogs: every T1/T2 `task_rank > 100` row was removed from each run's
+   `requests.jsonl` (atomic rewrite; surviving rows byte-identical, order
+   preserved). Removed-row bytes are retained verbatim in each run's
+   `archived-overscope-20260816/requests.removed.jsonl`. Counts: haiku
+   600->400 (-200), flash 4,200->2,800 (-1,400), grok 4,200->2,800 (-1,400).
+2. Receipts: no over-scope receipt was ever present in any
+   `responses.jsonl`/`ledger.jsonl`, so nothing needed moving out. The raw
+   `live-t3-n200-r2.jsonl` files stay in place untouched as evidence of the
+   executed over-scope calls. The valid executed T3 receipts inside them
+   were filtered (parsed, no error, not quarantined, task T3) byte-exactly
+   to `live-t3-n200-r2.t3only.completed.jsonl` and imported after the
+   catalog repair via `p3_plan.py --import-results`: flash +415 completed
+   (remaining 154), grok +1 completed (remaining 353). The over-scope T1/T2
+   receipts are deliberately unimportable now: their call_ids are no longer
+   in the catalogs and any import attempt refuses on unknown call_id.
+3. Manifests: `max_through_items_by_task` reset to T1=100 T2=100 T3=200;
+   `through_items`/`n_calls(_planned)`/`n_items(_planned)` recomputed from
+   the repaired catalogs (haiku 400/400; flash and grok 2,800/400).
+   `config`/`config_hash` untouched; a dated entry was appended to a sibling
+   `repair_events` list (kept out of `growth_events`, whose entries carry
+   the uniform export-proof shape) with rows_removed, receipts_archived=0
+   and this register reference.
+4. Archives: each run's erroneous `batch-t3-n200-r2.jsonl` was moved into
+   its `archived-overscope-20260816/` subfolder so the directory no longer
+   invites re-running it; for haiku the failed-attempt working files
+   (`r2-row-*`, `r2-result-*`, `r2-results.jsonl`,
+   `r2-results.completed.jsonl`, 424 files) moved there too.
+
+Verified after repair: catalog row counts and per-task max ranks match the
+manifests exactly; zero ledger/responses call_ids are outside the catalogs;
+the only catalog gaps are the known missing T3 calls (haiku 11, flash 154,
+grok 353, all task T3); a scoped `--tasks T3 --through-items 200` re-export
+against scratch copies of all three repaired directories passes the full
+catalog re-render growth proof and exports exactly those missing T3
+call_ids and nothing else (11/154/353 rows, T3 only; scratch copies
+deleted); `test_run_foundation.py`, `score.py --self-test` and
+`p4_plan.py --self-test` pass. `scores.json` provenance in the three
+directories still binds the pre-growth bytes and stays fail-closed until
+the T3 N=200 receipts complete and the runs are rescored (same intended
+gate as the growth entry above).
+
+Rule going forward: a growth export must state the single task being grown
+(`--tasks T3`, never the full task list) and should reuse the staged
+per-run batch files; resume/retry exports are re-issued from the staged
+command line, not retyped. Any export whose planned/exported counts differ
+from the staged expectation stops before submission.
