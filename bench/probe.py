@@ -3,13 +3,28 @@
     python3 bench/probe.py                                  # DRY RUN (default)
     python3 bench/probe.py --limit 3 --items bench/subsets/phase_a.jsonl
     uv run --with anthropic python bench/probe.py --limit 10 --live
+    python3 bench/probe.py --provider openrouter --model moonshotai/kimi-k3 \
+        --limit 1 --live                                    # OpenAI-compat path
     python3 bench/probe.py --score --run bench/runs/probe-<ts>-<pid>
 
 DRY RUN IS THE DEFAULT AND MAKES NO NETWORK CALL, exactly as in bench/run.py: it
 prints the full system prompt, user prompt and request parameters for every
-planned call and exits. A live run needs BOTH --live and ANTHROPIC_API_KEY (or
-OPENAI_API_KEY for a gpt-* model) and writes bench/runs/probe-<ts>-<pid>/
-containing manifest.json and responses.jsonl.
+planned call and exits. A live run needs BOTH --live and the relevant API key --
+ANTHROPIC_API_KEY, OPENAI_API_KEY for a gpt-* model, or the registered provider
+key with --provider -- taken from the process environment or read literally from
+the repo-root .env (never printed, never interpolated). It writes
+bench/runs/probe-<ts>-<pid>/ containing manifest.json and responses.jsonl.
+
+OPENAI-COMPATIBLE PROVIDERS (--provider xai|openrouter|deepseek) route live
+calls through the exact pinned (provider, model) configuration of
+bench/providers/openai_compat.py: the same MODEL_CONFIGS pin (max-tokens field
+name, thinking, reasoning_effort), the same structured-output encoding (strict
+json_schema, or DeepSeek's documented json_object with the schema appended to
+the system prompt), the same stdlib transport and the same 429/5xx/transport
+retry policy. A (provider, model) pair absent from MODEL_CONFIGS is refused,
+never degraded. Responses are parsed against PROBE_SCHEMA exactly as for native
+models; unparseable or truncated responses are recorded as failures, never
+guessed.
 
 WHAT IS PROBED, AND AT WHAT GRAIN
 Contamination is a property of a CASE, not of an item: every item drawn from
@@ -80,6 +95,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import run as runner  # noqa: E402  (same directory, deliberate -- see validate.py)
+from providers import openai_compat  # noqa: E402  (same directory, deliberate)
 
 BENCH = pathlib.Path(__file__).resolve().parent
 DEFAULT_ITEMS = BENCH / "items.jsonl"
@@ -273,6 +289,216 @@ def parse_probe_openai(payload):
     except (KeyError, IndexError, TypeError) as exc:
         return None, f"unparseable: {type(exc).__name__}: {exc}"
     return parse_probe({"content": [{"type": "text", "text": content}]})
+
+
+# --- key loading (native path) -----------------------------------------------
+
+def load_env_key(env_key, env_file=None):
+    """Ensure env_key is in os.environ; fall back to the repo .env, literally.
+
+    Same contract as openai_compat.load_api_key, which cannot be reused here
+    because it only accepts its registered provider keys: the process
+    environment wins; the dotenv file is parsed literally with no
+    interpolation, command substitution, inline comments or escape processing;
+    the value is exported for the SDK and never printed. Returns True when the
+    key is now set, False when it is simply absent (the caller owns the error
+    message); conflicting or malformed assignments are refused outright.
+    """
+    if os.environ.get(env_key):
+        return True
+    path = pathlib.Path(env_file) if env_file else openai_compat.DEFAULT_ENV_FILE
+    if not path.exists():
+        return False
+    values = []
+    with path.open(encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            candidate = line.strip()
+            if not candidate or candidate.startswith("#"):
+                continue
+            if candidate.startswith("export "):
+                candidate = candidate[7:].lstrip()
+            match = re.fullmatch(rf"{re.escape(env_key)}\s*=\s*(.*)", candidate)
+            if not match:
+                continue
+            value = match.group(1).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            elif value.startswith(("'", '"')) or value.endswith(("'", '"')):
+                raise SystemExit(f"{path}:{lineno}: unmatched quote in {env_key}")
+            if not value:
+                raise SystemExit(f"{path}:{lineno}: {env_key} is empty")
+            values.append(value)
+    if not values:
+        return False
+    if len(set(values)) != 1:
+        raise SystemExit(f"{path}: conflicting {env_key} assignments")
+    os.environ[env_key] = values[0]
+    return True
+
+
+# --- openai-compat live path -------------------------------------------------
+
+def compat_request_body(case, args, config):
+    """One chat-completions body, built exactly as openai_compat.to_chat_body
+    pins it for this (provider, model): same structured-output encoding, same
+    max-tokens field name, same pinned thinking/reasoning_effort, same
+    OpenRouter require_parameters routing. Only the schema and the prompt
+    differ (PROBE_SCHEMA and the probe prompt instead of a canonical row)."""
+    system, user = build_prompt(case)
+    if config["structured_output"] == "json_schema":
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": openai_compat.STRUCTURED_OUTPUT_NAME,
+                "strict": True,
+                "schema": json.loads(
+                    openai_compat.canonical_json(PROBE_SCHEMA).decode("utf-8")),
+            },
+        }
+    elif config["structured_output"] == "json_object_prompt_schema":
+        response_format = {"type": "json_object"}
+        system = (system + openai_compat.JSON_OBJECT_SCHEMA_INSTRUCTION
+                  + openai_compat.canonical_json(PROBE_SCHEMA).decode("utf-8"))
+    else:  # registry invariant, mirrored from to_chat_body
+        raise SystemExit(
+            f"unsupported structured_output mode {config['structured_output']!r}")
+    body = {
+        "model": args.model,
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user}],
+        config["max_tokens_field"]: args.max_tokens,
+        "response_format": response_format,
+        "stream": False,
+    }
+    if config["thinking"] is not None:
+        body["thinking"] = json.loads(
+            openai_compat.canonical_json(config["thinking"]).decode("utf-8"))
+    if config["reasoning_effort"] is not None:
+        body["reasoning_effort"] = config["reasoning_effort"]
+    if openai_compat.PROVIDERS[args.provider].get("provider_routing"):
+        body["provider"] = {"require_parameters": True}
+    return body
+
+
+def compat_call(transport, body):
+    """One probe call under openai_compat's retry policy (429/5xx/transport
+    only, bounded attempts, Retry-After honoured). Returns (result, attempts,
+    error): result is transport.json()'s payload+meta on success, error is a
+    sanitized message on terminal failure. Never raises for provider errors."""
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            result = transport.json("POST", openai_compat.CHAT_ENDPOINT, body)
+        except openai_compat.ProviderHTTPError as exc:
+            if (openai_compat._is_retryable(exc)
+                    and attempts < openai_compat.RETRY_MAX_ATTEMPTS):
+                time.sleep(openai_compat._retry_sleep_seconds(attempts, exc.retry_after))
+                continue
+            status = f"HTTP {exc.status}" if exc.status is not None else "transport"
+            return None, attempts, f"provider_http_error ({status}): {exc.safe_message}"
+        return result, attempts, None
+
+
+def parse_probe_compat(payload):
+    """Compat payload -> parse_probe, holding the adapter's completeness bar:
+    exactly one choice, finish_reason 'stop' (a length-truncated reasoning run
+    is a failure, not a guess), an assistant message with non-empty content."""
+    if payload.get("error"):
+        return None, openai_compat._provider_error_message(payload, None)
+    try:
+        content = openai_compat._extract_message_content(payload)
+    except openai_compat.AdapterError as exc:
+        return None, str(exc)
+    return parse_probe({"content": [{"type": "text", "text": content}]})
+
+
+def compat_live(cases, skipped, splits, cases_filter, args, config):
+    """Live probe loop over the OpenAI-compatible chat-completions transport.
+
+    Mirrors the native loop exactly: one call per case, the full payload
+    archived in responses.jsonl, every parse failure recorded as a failure.
+    The run dir format and --score work unchanged on these runs.
+    """
+    try:
+        transport = openai_compat.OpenAICompatTransport(
+            args.provider, openai_compat.load_api_key(args.provider))
+    except openai_compat.AdapterError as exc:
+        raise SystemExit(str(exc))
+
+    run_dir = pathlib.Path(args.run_dir) if args.run_dir else RUNS / (
+        "probe-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{os.getpid()}")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "kind": "memorisation_probe",
+        "items_path": str(pathlib.Path(args.items).resolve()),
+        "items_sha256": runner.sha256(args.items),
+        "n_cases": len(cases),
+        "n_calls": len(cases),
+        "n_skipped_cases": len(skipped),
+        "model": args.model,
+        "max_tokens": args.max_tokens,
+        # what is actually sent: the MODEL_CONFIGS pin, not the CLI flags
+        "thinking": config["thinking"],
+        "effort": config["reasoning_effort"],
+        "splits_filter": splits,
+        "cases_filter": cases_filter,
+        "provider": args.provider,
+        "compat": "openai_chat_completions",
+        "adapter_contract": openai_compat.ADAPTER_CONTRACT,
+        "base_url": openai_compat.PROVIDERS[args.provider]["base_url"],
+        "structured_output": config["structured_output"],
+        "max_tokens_field": config["max_tokens_field"],
+        "sdk_version": "stdlib-urllib",
+        "python": sys.version.split()[0],
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n",
+                                           encoding="utf-8")
+
+    n_ok = n_err = 0
+    with (run_dir / "responses.jsonl").open("w", encoding="utf-8") as fh:
+        for n, case in enumerate(cases, 1):
+            body = compat_request_body(case, args, config)
+            record = {
+                "case_number": case["case_number"],
+                "item_id": case["item_id"],
+                "task": case["task"],
+                "split": case["split"],
+                "sibling_case_numbers": case["sibling_case_numbers"],
+                "extract_shown": case["extract"],
+                "request": body,
+                "requested_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            try:
+                result, attempts, err = compat_call(transport, body)
+                record["attempts"] = attempts
+                if err is not None:
+                    record["response"], record["parsed"] = None, None
+                    record["error"], record["stop_reason"] = err, None
+                else:
+                    payload = result["payload"]
+                    record["response"] = payload
+                    record["http_status"] = result.get("http_status")
+                    record["provider_headers"] = result.get("headers") or {}
+                    record["stop_reason"] = openai_compat._finish_reason(payload)
+                    record["parsed"], record["error"] = parse_probe_compat(payload)
+            except Exception as exc:  # sanitized transport already; keep going
+                record["response"], record["parsed"] = None, None
+                record["error"] = f"{type(exc).__name__}: {exc}"
+            fh.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            fh.flush()
+            if record.get("error"):
+                n_err += 1
+            else:
+                n_ok += 1
+            print(f"[{n}/{len(cases)}] {case['case_number']} "
+                  f"-> {record.get('parsed') or record.get('error')}")
+
+    print(f"\nrun dir : {run_dir}")
+    print(f"calls   : {len(cases)}  parsed={n_ok}  errors={n_err}")
+    print(f"score   : python3 bench/probe.py --score --run {run_dir}")
+    return 0
 
 
 # --- scoring -----------------------------------------------------------------
@@ -482,9 +708,15 @@ def main(argv=None):
     ap.add_argument("--items", default=str(DEFAULT_ITEMS))
     ap.add_argument("--model", default="",
                     help="exact model identity; required with --live")
+    ap.add_argument("--provider", default="", choices=("xai", "openrouter", "deepseek"),
+                    help="route live calls through the OpenAI-compat adapter config; "
+                         "--model must be pinned in openai_compat.MODEL_CONFIGS")
     ap.add_argument("--limit", type=int, default=10,
                     help="cases to probe (default %(default)s); 0 = all")
     ap.add_argument("--splits", default="", help="comma-separated split filter")
+    ap.add_argument("--cases", default="",
+                    help="comma-separated case_number filter, applied after dedupe and "
+                         "before --limit (for retrying failed cases in a fresh run dir)")
     ap.add_argument("--max-tokens", type=int, default=1024)
     ap.add_argument("--thinking", choices=("adaptive", "disabled", "unset"), default="adaptive")
     ap.add_argument("--effort", default="", help="output_config.effort (low|medium|high|xhigh|max)")
@@ -516,11 +748,34 @@ def main(argv=None):
               file=sys.stderr)
         args.thinking = "unset"
 
+    config = None
+    if args.provider:
+        if args.effort:
+            raise SystemExit("--effort is unsupported with --provider; reasoning is "
+                             "pinned per model in openai_compat.MODEL_CONFIGS")
+        if args.thinking == "disabled":
+            raise SystemExit("--thinking disabled is unsupported with --provider; thinking "
+                             "is pinned per model in openai_compat.MODEL_CONFIGS")
+        args.thinking = "unset"  # the compat body carries the MODEL_CONFIGS pin instead
+        try:
+            config = openai_compat.require_model_config(args.provider, args.model)
+        except openai_compat.AdapterError as exc:
+            raise SystemExit(str(exc))
+
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
     items = [it for it in load_jsonl(args.items) if not splits or it["split"] in splits]
     if not items:
         raise SystemExit(f"no items matched (items={args.items} splits={splits})")
     cases, skipped = cases_from_items(items)
+    cases_filter = None
+    if args.cases:
+        wanted = {c.strip() for c in args.cases.split(",") if c.strip()}
+        missing = sorted(wanted - {c["case_number"] for c in cases})
+        if missing:
+            raise SystemExit(f"--cases: {len(missing)} requested case(s) are not probeable "
+                             f"from this item set (e.g. {missing[0]})")
+        cases = [c for c in cases if c["case_number"] in wanted]
+        cases_filter = sorted(wanted)
     if args.limit:
         cases = cases[:args.limit]
     if not cases:
@@ -528,13 +783,25 @@ def main(argv=None):
 
     if args.dry_run:
         for case in cases:
-            params = request_params(case, args)
             print("=" * 78)
             print(f"case {case['case_number']}  split={case['split']}  "
                   f"via item {case['item_id']} ({case['task']})  "
                   f"siblings={case['sibling_case_numbers'] or 'none'}  "
                   f"[CASE NUMBER WITHHELD FROM THE MODEL]")
             print("-" * 78)
+            if args.provider:
+                body = compat_request_body(case, args, config)
+                print("SYSTEM:")
+                print(body["messages"][0]["content"])
+                print("-" * 78)
+                print("USER:")
+                print(body["messages"][1]["content"])
+                print("-" * 78)
+                print("CHAT-COMPLETIONS BODY (messages elided above):")
+                print(json.dumps({k: v for k, v in body.items() if k != "messages"},
+                                 indent=1, sort_keys=True))
+                continue
+            params = request_params(case, args)
             print("SYSTEM:")
             print(params["system"])
             print("-" * 78)
@@ -545,6 +812,17 @@ def main(argv=None):
             print(json.dumps({k: v for k, v in params.items() if k not in ("system", "messages")},
                              indent=1, sort_keys=True))
         print("=" * 78)
+        if args.provider:
+            env_key = openai_compat.PROVIDERS[args.provider]["env_key"]
+            print(f"DRY RUN: {len(cases)} case(s), 1 call each, model {args.model} "
+                  f"via {args.provider} (OpenAI-compat). "
+                  f"No API call was made and nothing was written.")
+            if skipped:
+                print(f"skipped   : {len(skipped)} case(s) with no complaint-only extract "
+                      f"(e.g. {skipped[0][0]})")
+            print(f"Re-run with --live (and {env_key} in the environment or the repo .env) "
+                  f"to execute.")
+            return 0
         print(f"DRY RUN: {len(cases)} case(s), 1 call each, model {args.model}. "
               f"No API call was made and nothing was written.")
         if skipped:
@@ -553,19 +831,22 @@ def main(argv=None):
         print("Re-run with --live (and ANTHROPIC_API_KEY set) to execute.")
         return 0
 
-    runner.load_env()
+    if args.provider:
+        return compat_live(cases, skipped, splits, cases_filter, args, config)
+
     use_openai = runner.is_openai_model(args.model)
     if use_openai:
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise SystemExit("--live with an OpenAI model requires OPENAI_API_KEY in the environment")
+        if not load_env_key("OPENAI_API_KEY"):
+            raise SystemExit("--live with an OpenAI model requires OPENAI_API_KEY in the "
+                             "environment or the repo .env")
         try:
             import openai
         except ImportError:
             raise SystemExit("--live needs the openai SDK: uv run --with openai python bench/probe.py --live ...")
         anthropic = None
     else:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise SystemExit("--live requires ANTHROPIC_API_KEY in the environment")
+        if not load_env_key("ANTHROPIC_API_KEY"):
+            raise SystemExit("--live requires ANTHROPIC_API_KEY in the environment or the repo .env")
         try:
             import anthropic
         except ImportError:
@@ -590,6 +871,7 @@ def main(argv=None):
         "thinking": args.thinking,
         "effort": args.effort or None,
         "splits_filter": splits,
+        "cases_filter": cases_filter,
         "provider": "openai" if use_openai else "anthropic",
         "sdk_version": getattr(openai if use_openai else anthropic, "__version__", "unknown"),
         "python": sys.version.split()[0],
@@ -616,7 +898,12 @@ def main(argv=None):
             }
             try:
                 if use_openai:
-                    resp = client.chat.completions.create(**runner.to_openai(params))
+                    req = runner.to_openai(params)
+                    if args.effort:
+                        # runner.to_openai drops output_config.effort (it predates
+                        # reasoning models); send what the manifest records.
+                        req["reasoning_effort"] = args.effort
+                    resp = client.chat.completions.create(**req)
                     payload = resp.model_dump()
                     record["response"] = payload
                     record["stop_reason"] = (payload["choices"][0].get("finish_reason")
