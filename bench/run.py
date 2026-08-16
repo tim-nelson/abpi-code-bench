@@ -32,9 +32,10 @@ Protocols (DESIGN.md §3):
       oriented probabilities are combined by an equal-weight linear pool.
       Planned and imported by ``p3_plan.py``, not this runner.
 
-  P4  selective prediction -- an offline risk--coverage score computed from
-      P1/P2/P3 results. It is not a runner protocol and makes no provider
-      calls.
+  SP  selective prediction -- an offline risk--coverage score computed from
+      P1/P2/P3 results (formerly presented as P4; the P4 label is reserved
+      for a planned incentivized-deferral protocol). It is not a runner
+      protocol and makes no provider calls.
 
 Historical response-only runs retain their original identifiers: legacy P2
 means stated confidence, legacy P1 means repeated verdicts, and legacy P3 means

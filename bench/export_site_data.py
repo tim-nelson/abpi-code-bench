@@ -143,21 +143,23 @@ def canonical_sha256(value):
     return hashlib.sha256(payload).hexdigest()
 
 
-def _rename_selective_prediction_to_p4(value):
-    """Rename only old selective-prediction `p3` blocks in exported copies.
+def _rename_selective_prediction_to_sp(value):
+    """Rename retired selective-prediction keys to `sp` in exported copies.
 
+    Two legacy spellings exist: `p3` from before the protocol renumbering and
+    `p4` from before SP was split out of the P-code namespace (2026-08-16).
     Current P3 owns the top-level repeated stated-confidence diagnostics, so a
-    blanket key rename would be wrong.  The retired key is unambiguous by its
-    risk–coverage payload (`aurc` + `curve`).
+    blanket key rename would be wrong.  Both retired keys are unambiguous by
+    their risk–coverage payload (`aurc` + `curve`).
     """
     if isinstance(value, list):
-        return [_rename_selective_prediction_to_p4(row) for row in value]
+        return [_rename_selective_prediction_to_sp(row) for row in value]
     if not isinstance(value, dict):
         return value
     out = {}
     for key, child in value.items():
-        normalized = _rename_selective_prediction_to_p4(child)
-        target = ("p4" if key == "p3" and isinstance(child, dict)
+        normalized = _rename_selective_prediction_to_sp(child)
+        target = ("sp" if key in ("p3", "p4") and isinstance(child, dict)
                   and "aurc" in child and "curve" in child else key)
         if target in out and out[target] != normalized:
             raise ValueError(f"conflicting {target} score blocks during site normalization")
@@ -166,13 +168,13 @@ def _rename_selective_prediction_to_p4(value):
 
 
 def public_scores(scores, manifest):
-    """Site copy using current P1/P2/P3/P4 names.
+    """Site copy using current P1/P2/P3 and SP names.
 
     The immutable paid P3 source was originally catalogued as a P1 repeated
     condition and scored under a `p1r` diagnostics key.  That evidence remains
     unchanged on disk; only this publication copy resolves it to current P3.
     """
-    out = _rename_selective_prediction_to_p4(scores)
+    out = _rename_selective_prediction_to_sp(scores)
     if is_repeated_stated(manifest):
         legacy = out.pop("p1r", None)
         if legacy is not None:
@@ -487,7 +489,8 @@ def require_complete_active_run(run_id, run_dir, current_items_path=None):
     if public_protocol(manifest) not in {"P1", "P2", CURRENT_P3_PROTOCOL}:
         defects.append(
             f"active provider-run protocol={public_protocol(manifest)!r}; "
-            "P4 is derived offline and is not an activatable call run")
+            "SP (selective prediction) is derived offline and is not an "
+            "activatable call run")
     if scores.get("protocol") != manifest.get("protocol"):
         # The immutable paid precursor is resolved by score.py to active P3
         # while retaining its P1 source identity in protocol_provenance.
@@ -577,11 +580,13 @@ def require_complete_active_run(run_id, run_dir, current_items_path=None):
     # Reviewed runner lineage. Runs stay bound to the runner that planned
     # them; a hash is admitted here only when the diff to the current runner
     # is reviewed as request-identical. 2026-08-15: docstring-only edit
-    # (P3/P4 protocol naming) — no request-building change; register entry in
-    # bench/review/DEFECTS.md ("runner docstring lineage").
+    # (P3/P4 protocol naming); 2026-08-16: docstring-only edit (P4 renamed
+    # SP; P4 reserved) — no request-building change either time; register
+    # entries in bench/review/DEFECTS.md ("runner docstring lineage").
     accepted_runner_hashes = {
         current_runner_hash,
         "c2d603af374afba7dad5e226259d63061a7362732774201638617804799f90ba",
+        "e35f47bb8ab4a485efde85de7dcd65ef2a1483f7dcc3906302a59f11358ebe9d",
     }
     recorded_runner_hash = (manifest.get("config") or {}).get("runner_sha256")
     if recorded_runner_hash not in accepted_runner_hashes:
@@ -1456,7 +1461,7 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 "ci": score_mod.bootstrap(rows, draws, seed),
                 "by_label": by_label,
                 "reliability": score_mod.adaptive_bins(rows),
-                "p4": score_mod.selective_prediction(rows),
+                "sp": score_mod.selective_prediction(rows),
             })
 
         for family, sequences in sorted(prompt_sequences.items(),
@@ -1684,7 +1689,7 @@ def leaderboard(score_mod, items_by_id, migrations, exclusions, board_specs,
                 # Pooled over the ENTRY's board rows, not per run — a per-run
                 # curve would mix Phase A's non-T3 items into the T3 exhibit.
                 "reliability": score_mod.adaptive_bins(rows),
-                "p4": score_mod.selective_prediction(rows),
+                "sp": score_mod.selective_prediction(rows),
             })
         if len({frozenset(s) for s in id_sets}) > 1:
             sizes = " vs ".join(str(len(s)) for s in id_sets)
@@ -1929,7 +1934,7 @@ def main():
             "P2 board as the verdict-vote view of its active P3 run, always marked "
             "derived_vote_from_p3 and never replacing or merging with a native entry; "
             "declared boards retain their explicit same-items "
-            "policy; P4 risk–coverage is computed offline from each exact board; no rank "
+            "policy; SP risk–coverage is computed offline from each exact board; no rank "
             "is implied by a one-entry board"),
     }
     (lib_out / "leaderboard.json").write_text(
@@ -1993,7 +1998,7 @@ def main():
             "P1": "one-shot stated confidence: one answer-and-probability call per item",
             "P2": "verdict-repeat agreement: K byte-identical verdict-only calls; confidence is the modal-answer frequency",
             "P3": "repeated stated-confidence linear pool: K byte-identical answer-and-probability calls; equally weighted oriented probabilities are averaged",
-            "P4": "offline selective prediction: threshold, risk–coverage and AURC analysis over any completed P1/P2/P3 confidence view; no new model calls",
+            "SP": "offline selective prediction: threshold, risk–coverage and AURC analysis over any completed P1/P2/P3 confidence view; no new model calls (formerly presented as P4)",
         },
         "runs": {
             "n_scored": len(runs),

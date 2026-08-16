@@ -8,6 +8,8 @@ import os
 import pathlib
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -132,6 +134,46 @@ class FakeTransport:
             raise outcome
         return {"payload": outcome, "http_status": 200,
                 "headers": {"x-request-id": f"req_{len(self.calls)}"}}
+
+
+def distinct_row(index, *, model=XAI_MODEL):
+    """A canonical row whose user message (and therefore body) is unique."""
+    row = canonical_row(f"call-t1-{index:06d}-r001-{index:020d}", model=model)
+    row["request"]["messages"][0]["content"] = f"Case and question {index}."
+    row["prompt_sha256"] = adapter.digest({
+        "system": row["request"]["system"],
+        "messages": row["request"]["messages"],
+    })
+    row["request_sha256"] = adapter.digest(row["request"])
+    return row
+
+
+class KeyedTransport:
+    """Thread-safe scripted transport keyed on the user-message content.
+
+    Concurrent workers finish in nondeterministic order, so outcomes are
+    per-call scripts rather than one global sequence.  A call with no
+    remaining scripted outcome fails the test (catches double submission).
+    """
+
+    def __init__(self, outcomes):
+        self._lock = threading.Lock()
+        self.outcomes = {key: list(value) for key, value in outcomes.items()}
+        self.calls = []
+
+    def json(self, method, path, body=None):
+        key = body["messages"][1]["content"]
+        with self._lock:
+            self.calls.append(key)
+            if not self.outcomes.get(key):
+                raise AssertionError(f"unexpected provider call for {key!r}")
+            outcome = self.outcomes[key].pop(0)
+        if callable(outcome):
+            outcome = outcome()
+        if isinstance(outcome, Exception):
+            raise outcome
+        return {"payload": outcome, "http_status": 200,
+                "headers": {"x-request-id": f"req_{key}"}}
 
 
 class BodyTranslationTests(unittest.TestCase):
@@ -507,6 +549,291 @@ class RunLiveTests(unittest.TestCase):
             receipts = adapter.read_jsonl(output)
             self.assertEqual([r["call_id"] for r in receipts],
                              [row["call_id"] for row in rows])
+
+
+class ConcurrencyTests(unittest.TestCase):
+    """The pooled run-live path preserves every sequential guarantee."""
+
+    def _distinct_canonical(self, tmp, n, name="canonical.jsonl"):
+        rows = [distinct_row(index) for index in range(1, n + 1)]
+        path = pathlib.Path(tmp) / name
+        write_jsonl(path, rows)
+        return path, rows
+
+    @staticmethod
+    def _key(row):
+        return row["request"]["messages"][0]["content"]
+
+    def test_concurrent_run_yields_exactly_one_whole_line_receipt_per_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            n = 12
+            canonical, rows = self._distinct_canonical(tmp, n)
+            output = tmp / "out.jsonl"
+            outcomes = {
+                self._key(row): [chat_payload(probability=index / 100)]
+                for index, row in enumerate(rows, 1)
+            }
+            counts = adapter.run_live(
+                canonical, output, "xai", max_calls=n,
+                transport=KeyedTransport(outcomes),
+                sleep_fn=lambda _: None, concurrency=4)
+            self.assertEqual(counts, {"planned": n, "skipped": 0, "attempted": n,
+                                      "completed": n, "failed": 0,
+                                      "quarantined": 0})
+            raw = output.read_text(encoding="utf-8")
+            self.assertTrue(raw.endswith("\n"))
+            lines = raw.splitlines()
+            self.assertEqual(len(lines), n)
+            by_id = {}
+            for line in lines:
+                receipt = json.loads(line)  # every line parses whole
+                self.assertEqual(receipt["schema_version"],
+                                 "pmcpa.openai-compat-normalized.v1")
+                self.assertNotIn(receipt["call_id"], by_id)  # exactly once
+                by_id[receipt["call_id"]] = receipt
+            self.assertEqual(set(by_id), {row["call_id"] for row in rows})
+            for index, row in enumerate(rows, 1):
+                # Each receipt carries its own call's response, never a
+                # neighbour's (no cross-thread mixing).
+                self.assertEqual(by_id[row["call_id"]]["parsed"],
+                                 {"answer": "breach", "probability": index / 100})
+            # The strict resume reader accepts the whole file as-is.
+            self.assertEqual(len(adapter.read_existing_receipts(
+                output, set(by_id))), n)
+
+    def test_resume_under_concurrency_skips_receipted_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            canonical, rows = self._distinct_canonical(tmp, 8)
+            first_only = tmp / "first.jsonl"
+            write_jsonl(first_only, rows[:3])
+            output = tmp / "out.jsonl"
+
+            counts = adapter.run_live(
+                first_only, output, "xai", max_calls=8,
+                transport=KeyedTransport(
+                    {self._key(row): [chat_payload()] for row in rows[:3]}),
+                sleep_fn=lambda _: None, concurrency=2)
+            self.assertEqual(counts["completed"], 3)
+            before = output.read_bytes()
+
+            # Outcomes exist ONLY for the un-receipted calls: any resubmission
+            # of a receipted call_id would raise inside KeyedTransport.
+            resumed = KeyedTransport(
+                {self._key(row): [chat_payload()] for row in rows[3:]})
+            counts = adapter.run_live(
+                canonical, output, "xai", max_calls=8, transport=resumed,
+                sleep_fn=lambda _: None, concurrency=3)
+            self.assertEqual(counts, {"planned": 8, "skipped": 3, "attempted": 5,
+                                      "completed": 5, "failed": 0,
+                                      "quarantined": 0})
+            self.assertEqual(sorted(resumed.calls),
+                             sorted(self._key(row) for row in rows[3:]))
+            after = output.read_bytes()
+            self.assertTrue(after.startswith(before))  # append-only integrity
+            receipts = adapter.read_jsonl(output)
+            self.assertEqual({r["call_id"] for r in receipts},
+                             {row["call_id"] for row in rows})
+            self.assertEqual(len(receipts), 8)
+
+    def test_shared_cooldown_honors_retry_after_and_delays_other_workers(self):
+        # Deterministic single-thread proof of the collective-backoff maths.
+        clock = {"now": 100.0}
+        sleeps = []
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            clock["now"] += seconds
+
+        cooldown = adapter.SharedCooldown(now_fn=lambda: clock["now"])
+        receipt = adapter.execute_call(
+            canonical_row(),
+            FakeTransport([http_error(429, retry_after=7.0), chat_payload()]),
+            "xai", sleep_fn=fake_sleep, cooldown=cooldown)
+        self.assertIsNone(receipt["error"])
+        self.assertEqual(receipt["response"]["attempts"], 2)
+        self.assertEqual(sleeps, [7.0])  # Retry-After honored, once
+
+        # A second worker starting mid-cooldown waits out the remainder
+        # before submitting anything.
+        clock["now"] = 103.0
+        other_sleeps = []
+
+        def other_sleep(seconds):
+            other_sleeps.append(seconds)
+            clock["now"] += seconds
+
+        other = adapter.execute_call(
+            canonical_row("call-t1-000002-r001-1234567890abcdef"),
+            FakeTransport([chat_payload()]), "xai",
+            sleep_fn=other_sleep, cooldown=cooldown)
+        self.assertIsNone(other["error"])
+        self.assertEqual(other_sleeps, [4.0])  # remaining shared cooldown
+
+    def test_429_retry_after_under_concurrency_delays_and_recovers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            canonical, rows = self._distinct_canonical(tmp, 4)
+            output = tmp / "out.jsonl"
+            outcomes = {self._key(row): [chat_payload()] for row in rows}
+            outcomes[self._key(rows[1])] = [
+                http_error(429, retry_after=5.0), chat_payload()]
+            sleeps = []  # list.append is thread-safe under the GIL
+            counts = adapter.run_live(
+                canonical, output, "xai", max_calls=4,
+                transport=KeyedTransport(outcomes),
+                sleep_fn=sleeps.append, concurrency=2)
+            self.assertEqual(counts["completed"], 4)
+            self.assertEqual(counts["failed"], 0)
+            receipts = {r["call_id"]: r for r in adapter.read_jsonl(output)}
+            self.assertEqual(len(receipts), 4)
+            self.assertEqual(
+                receipts[rows[1]["call_id"]]["response"]["attempts"], 2)
+            self.assertIn(5.0, sleeps)  # the 429'd worker honored Retry-After
+
+    def test_terminal_4xx_under_concurrency_is_receipted_and_others_continue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            canonical, rows = self._distinct_canonical(tmp, 6)
+            output = tmp / "out.jsonl"
+            outcomes = {self._key(row): [chat_payload()] for row in rows}
+            outcomes[self._key(rows[2])] = [http_error(404, message="gone")]
+            counts = adapter.run_live(
+                canonical, output, "xai", max_calls=6,
+                transport=KeyedTransport(outcomes),
+                sleep_fn=lambda _: None, concurrency=3)
+            self.assertEqual(counts, {"planned": 6, "skipped": 0, "attempted": 6,
+                                      "completed": 5, "failed": 1,
+                                      "quarantined": 0})
+            receipts = {r["call_id"]: r for r in adapter.read_jsonl(output)}
+            self.assertEqual(set(receipts), {row["call_id"] for row in rows})
+            failed = receipts[rows[2]["call_id"]]
+            self.assertEqual(failed["error"]["http_status"], 404)
+            self.assertFalse(failed["retry_safe"])  # terminal, never re-billed
+
+    def test_exhausted_retries_stop_new_submissions_but_finish_in_flight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            canonical, rows = self._distinct_canonical(tmp, 3)
+            output = tmp / "out.jsonl"
+            release = threading.Event()
+
+            def blocked_success():
+                if not release.wait(timeout=10):
+                    raise AssertionError("in-flight call was never released")
+                return chat_payload()
+
+            # Queue order: rows[0] blocks in flight on one worker; rows[1]
+            # exhausts transport retries on the other; rows[2] must then
+            # never be submitted.
+            transport = KeyedTransport({
+                self._key(rows[0]): [blocked_success],
+                self._key(rows[1]): [http_error(None, message="net down")]
+                * adapter.RETRY_MAX_ATTEMPTS,
+                self._key(rows[2]): [chat_payload()],
+            })
+            result = {}
+
+            def target():
+                result["counts"] = adapter.run_live(
+                    canonical, output, "xai", max_calls=3, transport=transport,
+                    sleep_fn=lambda _: None, concurrency=2)
+
+            runner = threading.Thread(target=target)
+            runner.start()
+            deadline = time.time() + 10
+            while time.time() < deadline:  # wait for the failure receipt
+                if output.exists() and rows[1]["call_id"] in output.read_text(
+                        encoding="utf-8"):
+                    break
+                time.sleep(0.01)
+            release.set()  # let the in-flight call finish
+            runner.join(timeout=10)
+            self.assertFalse(runner.is_alive())
+
+            counts = result["counts"]
+            self.assertEqual(counts["attempted"], 2)
+            self.assertEqual(counts["completed"], 1)
+            self.assertEqual(counts["failed"], 1)
+            receipts = {r["call_id"]: r for r in adapter.read_jsonl(output)}
+            # In-flight call finished and was receipted; the unstarted call
+            # has no receipt, so it stays retriable.
+            self.assertEqual(set(receipts),
+                             {rows[0]["call_id"], rows[1]["call_id"]})
+            self.assertTrue(receipts[rows[1]["call_id"]]["retry_safe"])
+            self.assertNotIn(self._key(rows[2]), transport.calls)
+
+            # Resume submits ONLY the unattempted call.
+            resumed = KeyedTransport({self._key(rows[2]): [chat_payload()]})
+            counts = adapter.run_live(
+                canonical, output, "xai", max_calls=3, transport=resumed,
+                sleep_fn=lambda _: None, concurrency=2)
+            self.assertEqual(counts, {"planned": 3, "skipped": 2, "attempted": 1,
+                                      "completed": 1, "failed": 0,
+                                      "quarantined": 0})
+
+    def test_concurrency_default_is_one_and_sequential_path_is_unchanged(self):
+        args = adapter.build_parser().parse_args([
+            "run-live", "--canonical", "c.jsonl", "--output", "o.jsonl",
+            "--provider", "xai", "--max-calls", "1", "--execute",
+        ])
+        self.assertEqual(args.concurrency, 1)
+
+        with self.assertRaisesRegex(adapter.AdapterError, "concurrency"):
+            adapter.run_live("unused.jsonl", "unused-out.jsonl", "xai",
+                             max_calls=1, transport=FakeTransport(),
+                             concurrency=0)
+
+        # Explicit concurrency=1 reproduces the sequential contract exactly:
+        # canonical receipt order, between-call sleeps only, per-attempt
+        # progress lines (mirrors the pre-flag expectations).
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            canonical, rows = self._distinct_canonical(tmp, 3)
+            output = tmp / "out.jsonl"
+            sleeps = []
+            progress = []
+            counts = adapter.run_live(
+                canonical, output, "xai", max_calls=3,
+                transport=KeyedTransport(
+                    {self._key(row): [chat_payload()] for row in rows}),
+                sleep_ms=50, sleep_fn=sleeps.append,
+                progress_every=1, print_fn=progress.append, concurrency=1)
+            self.assertEqual(counts["completed"], 3)
+            self.assertEqual(sleeps, [0.05, 0.05])  # between calls only
+            self.assertEqual(len(progress), 3)
+            self.assertIn("progress: 1/3", progress[0])
+            self.assertEqual([r["call_id"] for r in adapter.read_jsonl(output)],
+                             [row["call_id"] for row in rows])
+
+    def test_cli_passes_concurrency_through(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            canonical = tmp / "canonical.jsonl"
+            write_jsonl(canonical, [canonical_row()])
+            counts = {"planned": 1, "skipped": 0, "attempted": 1,
+                      "completed": 1, "failed": 0, "quarantined": 0}
+            with mock.patch.object(adapter, "run_live",
+                                   return_value=counts) as run_live, \
+                    mock.patch.object(adapter, "_transport",
+                                      return_value=FakeTransport()):
+                rc = adapter.main([
+                    "run-live", "--canonical", str(canonical),
+                    "--output", str(tmp / "out.jsonl"), "--provider", "xai",
+                    "--max-calls", "1", "--concurrency", "3", "--execute",
+                ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(run_live.call_args.kwargs["concurrency"], 3)
+
+            with mock.patch.object(adapter, "_transport") as factory:
+                rc = adapter.main([
+                    "run-live", "--canonical", str(canonical),
+                    "--output", str(tmp / "out.jsonl"), "--provider", "xai",
+                    "--max-calls", "1", "--concurrency", "0", "--execute",
+                ])
+            self.assertEqual(rc, 2)  # refused before any credential is read
+            factory.assert_not_called()
 
 
 class ImportCompatibilityTests(unittest.TestCase):

@@ -116,9 +116,10 @@ assigned to the selected answer.
 - P3 costs K calls and is reported on its own boards. It is not mixed with P1
   one-shot confidence or P2 verdict-repeat agreement.
 
-### P4 — offline selective prediction
+### SP — offline selective prediction
 
-P4 makes no model calls. For each completed P1/P2/P3 confidence signal and
+SP (formerly presented as P4; the P4 label is reserved for a planned
+incentivized-deferral protocol) makes no model calls. For each completed P1/P2/P3 confidence signal and
 threshold, accept answers at or above the threshold and defer the rest. Report
 coverage, selective risk, AURC and task/label-specific error transitions.
 Equal-confidence items enter together. Breach-specific missed-breach/false-flag

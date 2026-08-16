@@ -18,7 +18,7 @@ Let `o=1` when the answer matches the label and `o=0` otherwise.
   answers.
 - **Calibration:** reliability summaries and ECE. ECE is secondary because it
   is unstable and bin-sensitive on small task prefixes.
-- **Selective prediction (P4):** risk/accuracy as low-confidence items are
+- **Selective prediction (SP):** risk/accuracy as low-confidence items are
   deferred, plus AURC and the two binary error directions.
 
 Scores are reported per task. Any pooled summary is secondary because the
@@ -31,7 +31,7 @@ three tasks answer different questions.
 | P1 | one stated probability alongside the verdict | 1 |
 | P2 | modal-answer frequency across byte-identical verdict-only requests | K |
 | P3 | linear pool of K byte-identical stated-probability draws | K |
-| P4 | offline threshold sweep over a completed P1, P2 or P3 signal | 0 |
+| SP | offline threshold sweep over a completed P1, P2 or P3 signal | 0 |
 
 P2 starts at K=7. Repeat indices are stable, so P2@3 is the first three calls
 and later top-ups extend rather than replace the evidence. A P2 item with fewer
@@ -40,7 +40,7 @@ at a smaller effective K.
 
 P3 repeats the exact P1 request. Each answer/probability draw is oriented to
 the same fixed positive label before an equal-weight linear probability pool
-is taken. Its primary answer, confidence, Brier, calibration and P4 view all
+is taken. Its primary answer, confidence, Brier, calibration and SP view all
 come from that pool at the declared odd K. Single-draw performance,
 within-item dispersion and modal-vote performance are secondary diagnostics.
 

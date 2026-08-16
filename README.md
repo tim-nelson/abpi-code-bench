@@ -53,7 +53,7 @@ construction.
 | [L2](l2/SPEC.md) | canonical cases, repairs and receipts | `data/l2/cases.jsonl` |
 | [benchmark](bench/DESIGN.md) | construct and validate T1/T2/T3 items | `bench/items.jsonl` |
 | [runner](bench/README.md) | fixed cumulative item order, P1/P2/P3 requests and durable resume | `bench/runs/<run>/` |
-| [scorer](bench/APPROACH.md) | accuracy, calibration, discrimination and offline P4 selective prediction | `scores.json` |
+| [scorer](bench/APPROACH.md) | accuracy, calibration, discrimination and offline SP selective prediction | `scores.json` |
 
 L1 never repairs source content. L2 may repair it only with an explicit receipt.
 Every excluded item candidate receives a durable reason, and validators
@@ -73,8 +73,10 @@ common prefix, never whichever rows happened to parse successfully.
 - P3 repeats P1's byte-identical answer-and-probability request K times and
   linearly pools the probabilities after orienting every draw to the same task
   label. It is a separate K-call method, not a relabelled P1 result.
-- P4 makes no new model calls. It evaluates deferral/risk–coverage policies
-  offline from any completed P1, P2 or P3 confidence signal.
+- SP (selective prediction, formerly presented as P4) makes no new model
+  calls. It evaluates deferral/risk–coverage policies offline from any
+  completed P1, P2 or P3 confidence signal. The P4 label is reserved for a
+  planned incentivized-deferral protocol.
 
 The runner is dry-run/offline by default. Provider calls are never started
 without an explicit approval covering the model, configuration, tasks,

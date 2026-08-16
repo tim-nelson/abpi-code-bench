@@ -11,8 +11,11 @@ adapter only:
 * translates them mechanically to chat-completion bodies pinned per
   ``(provider, model)`` in ``MODEL_CONFIGS`` (byte-identical canonical
   repeats map to byte-identical provider bodies);
-* executes one explicitly authorised smoke call, or a sequential resumable
-  ``run-live`` pass under a required ``--max-calls`` hard cap; and
+* executes one explicitly authorised smoke call, or a resumable ``run-live``
+  pass under a required ``--max-calls`` hard cap — strictly sequential by
+  default, optionally up to ``--concurrency N`` calls in flight on worker
+  threads with every receipt still appended whole-line + fsync by exactly
+  one thread at a time; and
 * appends normalized receipts that ``bench/run.py --import-results`` and
   ``bench/p3_plan.py --import-results`` accept unchanged.
 
@@ -27,7 +30,15 @@ per call, honoring a numeric ``Retry-After`` header.  Any other 4xx is a
 terminal receipt: recorded once, never retried, never re-billed.  Responses
 that fail JSON/schema validation become quarantined receipts (fail closed,
 never guessed); resume never re-submits a call_id that already has any
-receipt in the output file.
+receipt in the output file, regardless of receipt order.
+
+Under ``--concurrency N`` (default 1 = the original sequential path) the
+per-call retry policy is unchanged; additionally all workers share one 429
+cooldown deadline so they back off collectively, and a call that exhausts
+its retries (429/5xx/transport) stops NEW submissions while in-flight calls
+finish and are receipted.  Receipts are only ever written after a response
+(or terminal failure) arrives — never pre-written — so a killed run leaves
+unreceipted calls retriable, exactly as in the sequential path.
 
 Provider facts verified against vendor docs on 2026-08-16:
 
@@ -86,8 +97,10 @@ import json
 import math
 import os
 import pathlib
+import queue
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -757,6 +770,34 @@ def _retry_sleep_seconds(attempt: int, retry_after: float | None) -> float:
     return min(backoff, RETRY_MAX_SLEEP_SECONDS)
 
 
+class SharedCooldown:
+    """Collective 429 backoff shared by concurrent run-live workers.
+
+    Whenever any worker observes HTTP 429 it extends one shared monotonic
+    deadline by that call's computed backoff (which already honors a numeric
+    ``Retry-After``); every worker waits out the remaining cooldown before
+    its next attempt.  This changes nothing about the per-call retry policy;
+    it only makes other workers pause instead of piling onto a rate limit.
+    """
+
+    def __init__(self, now_fn=time.monotonic):
+        self._lock = threading.Lock()
+        self._now = now_fn
+        self._until = 0.0
+
+    def extend(self, seconds: float) -> None:
+        deadline = self._now() + max(0.0, float(seconds))
+        with self._lock:
+            if deadline > self._until:
+                self._until = deadline
+
+    def wait(self, sleep_fn=time.sleep) -> None:
+        with self._lock:
+            remaining = self._until - self._now()
+        if remaining > 0:
+            sleep_fn(remaining)
+
+
 def _provider_receipt(provider: str, payload: Any, meta: dict[str, Any], *,
                       config: dict[str, Any], pinned_host: str | None,
                       attempts: int) -> dict[str, Any]:
@@ -909,19 +950,30 @@ def _http_failure_receipt(canonical: dict[str, Any], provider: str,
 
 
 def execute_call(canonical: dict[str, Any], transport: Any, provider: str, *,
-                 pinned_host: str | None = None,
-                 sleep_fn=time.sleep) -> dict[str, Any]:
-    """Execute one canonical call with bounded retry; always return a receipt."""
+                 pinned_host: str | None = None, sleep_fn=time.sleep,
+                 cooldown: SharedCooldown | None = None) -> dict[str, Any]:
+    """Execute one canonical call with bounded retry; always return a receipt.
+
+    ``cooldown`` (optional, used by the pooled run-live path) is a
+    :class:`SharedCooldown`: each attempt first waits out any shared 429
+    cooldown, and any observed 429 extends it.  When ``cooldown`` is None the
+    behavior is byte-identical to the original sequential executor.
+    """
     body = to_chat_body(canonical, provider, pinned_host=pinned_host)
     requested_utc = utc_now()
     attempts = 0
     while True:
         attempts += 1
+        if cooldown is not None:
+            cooldown.wait(sleep_fn)
         try:
             result = transport.json("POST", CHAT_ENDPOINT, body)
         except ProviderHTTPError as exc:
+            delay = _retry_sleep_seconds(attempts, exc.retry_after)
+            if cooldown is not None and exc.status == 429:
+                cooldown.extend(delay)
             if _is_retryable(exc) and attempts < RETRY_MAX_ATTEMPTS:
-                sleep_fn(_retry_sleep_seconds(attempts, exc.retry_after))
+                sleep_fn(delay)
                 continue
             return _http_failure_receipt(
                 canonical, provider, exc, pinned_host=pinned_host,
@@ -959,18 +1011,115 @@ def read_existing_receipts(path: pathlib.Path | str,
     return done
 
 
+def _run_live_pooled(fh: Any, pending: list[dict[str, Any]],
+                     counts: dict[str, int], *, provider: str, transport: Any,
+                     pinned_host: str | None, max_calls: int, sleep_ms: int,
+                     sleep_fn, progress_every: int, print_fn,
+                     concurrency: int) -> None:
+    """Execute pending calls with up to ``concurrency`` in flight.
+
+    Guarantees relative to the sequential path:
+
+    * Single writer: one lock serialises receipt appends; each receipt is
+      written as one whole line, flushed and fsynced before the lock is
+      released, so lines are never interleaved or partial.  A worker never
+      starts its next call before its previous receipt is durable, bounding
+      billed-but-unreceipted calls at any crash to the <= N then in flight.
+    * Receipts are written only after a response or terminal failure arrives
+      (never pre-written); resume keys on ``call_id`` and is independent of
+      receipt order in the file.
+    * ``sleep_ms`` applies per worker between that worker's own calls.
+    * A receipt for an exhausted retryable failure (429/5xx/transport,
+      ``retry_safe`` true) stops NEW submissions; calls already in flight
+      finish and are receipted, and unattempted calls stay retriable.
+    * Terminal 4xx and quarantined receipts do not stop the run, exactly as
+      in the sequential path.
+    """
+    work: queue.Queue = queue.Queue()
+    for row in pending:
+        work.put(row)
+    state_lock = threading.Lock()  # single-writer receipt append + counters
+    stop_new_submissions = threading.Event()
+    cooldown = SharedCooldown()
+    worker_errors: list[BaseException] = []
+    written = 0
+
+    def _record(receipt: dict[str, Any]) -> None:
+        nonlocal written
+        with state_lock:
+            _append_receipt(fh, receipt)
+            written += 1
+            if receipt.get("quarantine"):
+                counts["quarantined"] += 1
+            elif receipt.get("error"):
+                counts["failed"] += 1
+                if receipt.get("retry_safe"):
+                    stop_new_submissions.set()
+            else:
+                counts["completed"] += 1
+            if written % progress_every == 0:
+                print_fn(
+                    f"progress: {written}/{len(pending)} calls "
+                    f"(completed={counts['completed']} failed={counts['failed']} "
+                    f"quarantined={counts['quarantined']} skipped={counts['skipped']})")
+
+    def _worker() -> None:
+        first = True
+        while True:
+            if stop_new_submissions.is_set() or worker_errors:
+                return
+            try:
+                row = work.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                if not first and sleep_ms:
+                    sleep_fn(sleep_ms / 1000.0)
+                first = False
+                with state_lock:
+                    if counts["attempted"] >= max_calls:  # defence in depth
+                        raise AdapterError(
+                            "hard call cap reached; refusing further submissions")
+                    counts["attempted"] += 1
+                _record(execute_call(row, transport, provider,
+                                     pinned_host=pinned_host, sleep_fn=sleep_fn,
+                                     cooldown=cooldown))
+            except BaseException as exc:  # re-raised in the caller after join
+                with state_lock:
+                    worker_errors.append(exc)
+                stop_new_submissions.set()
+                return
+
+    threads = [threading.Thread(target=_worker, name=f"openai-compat-{index + 1}")
+               for index in range(min(concurrency, len(pending)))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if worker_errors:
+        raise worker_errors[0]
+
+
 def run_live(canonical_path: pathlib.Path | str, output_path: pathlib.Path | str,
              provider: str, *, max_calls: int, transport: Any,
              pinned_host: str | None = None, sleep_ms: int = 0,
              sleep_fn=time.sleep, progress_every: int = PROGRESS_EVERY,
-             print_fn=print) -> dict[str, int]:
-    """Sequential resumable live executor under a required hard call cap."""
+             print_fn=print, concurrency: int = 1) -> dict[str, int]:
+    """Resumable live executor under a required hard call cap.
+
+    ``concurrency=1`` (the default) is the original strictly sequential
+    path, unchanged.  ``concurrency>1`` executes up to that many calls in
+    flight via :func:`_run_live_pooled`, which preserves the append-only
+    single-writer receipt contract and resume semantics.
+    """
     require_provider(provider)
     validate_pinned_host(provider, pinned_host)
     if not isinstance(max_calls, int) or max_calls < 1:
         raise AdapterError("--max-calls must be a positive integer hard cap")
     if sleep_ms < 0:
         raise AdapterError("--sleep-ms must be >= 0")
+    if not isinstance(concurrency, int) or concurrency < 1:
+        raise AdapterError("--concurrency must be a positive integer")
     rows = load_canonical_rows(canonical_path, provider)
     if len(rows) > max_calls:
         raise AdapterError(
@@ -984,6 +1133,14 @@ def run_live(canonical_path: pathlib.Path | str, output_path: pathlib.Path | str
     output_path = pathlib.Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("a", encoding="utf-8") as fh:
+        if concurrency > 1:
+            _run_live_pooled(
+                fh, pending, counts, provider=provider, transport=transport,
+                pinned_host=pinned_host, max_calls=max_calls,
+                sleep_ms=sleep_ms, sleep_fn=sleep_fn,
+                progress_every=progress_every, print_fn=print_fn,
+                concurrency=concurrency)
+            return counts
         for index, row in enumerate(pending):
             if index and sleep_ms:
                 sleep_fn(sleep_ms / 1000.0)
@@ -1038,14 +1195,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_live_args(smoke)
 
     live = commands.add_parser(
-        "run-live", help="sequential resumable live executor with a hard call cap")
+        "run-live", help="resumable live executor with a hard call cap "
+                         "(sequential by default; see --concurrency)")
     live.add_argument("--canonical", required=True, help="canonical JSONL export")
     live.add_argument("--output", required=True,
                       help="append-only normalized-result JSONL (resumable)")
     live.add_argument("--max-calls", required=True, type=int,
                       help="approved hard cap; refused if canonical rows exceed it")
     live.add_argument("--sleep-ms", type=int, default=0,
-                      help="milliseconds to sleep between consecutive live calls")
+                      help="milliseconds to sleep between consecutive live calls "
+                           "(per worker when --concurrency > 1)")
+    live.add_argument("--concurrency", type=int, default=1,
+                      help="maximum calls in flight (default 1 = strictly "
+                           "sequential; receipts are always appended whole-line "
+                           "with fsync by one writer at a time)")
     _add_live_args(live)
     return parser
 
@@ -1084,11 +1247,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise AdapterError(
                     f"refusing: canonical file contains {len(rows)} rows, which "
                     f"exceeds --max-calls {args.max_calls}")
+            if args.concurrency < 1:
+                raise AdapterError("--concurrency must be a positive integer")
             transport = _transport(args)
             counts = run_live(
                 args.canonical, args.output, args.provider,
                 max_calls=args.max_calls, transport=transport,
-                pinned_host=args.pin_host, sleep_ms=args.sleep_ms)
+                pinned_host=args.pin_host, sleep_ms=args.sleep_ms,
+                concurrency=args.concurrency)
             print(f"run-live: planned={counts['planned']} skipped={counts['skipped']} "
                   f"attempted={counts['attempted']} completed={counts['completed']} "
                   f"failed={counts['failed']} quarantined={counts['quarantined']} "

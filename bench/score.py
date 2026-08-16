@@ -15,7 +15,7 @@ at an earlier common prefix. Archived runs without ranked requests retain the
 legacy responses-only path.
 
 Confidence is scored in the confidence-of-correctness frame, so P1, P2 and P3
-land on the same axis and P4 evaluates deployment from any signal:
+land on the same axis and SP evaluates deployment from any signal:
 
     p = the model's confidence in the answer it gave
         P1 -> the stated probability
@@ -27,8 +27,10 @@ land on the same axis and P4 evaluates deployment from any signal:
     ECE   = sum_b (n_b/N) |acc_b - conf_b|   over 10 equal-mass bins
     AUROC = P(p higher on a correct answer than on a wrong one), ties at 0.5
 
-P4 is the offline confidence-threshold selective-prediction analysis: coverage,
-selective risk and AURC. It makes no provider call.
+SP — offline selective prediction (risk–coverage over any protocol's
+confidence signal): coverage, selective risk and AURC. It makes no provider
+call. SP was formerly presented as P4; the P4 label is reserved for a planned
+incentivized-deferral protocol.
 
 Archived response-only and ``pmcpa.zero-provider.v1`` files keep their original
 names: legacy P2 is stated confidence, legacy P1 is repeated verdicts, and
@@ -134,7 +136,10 @@ def resolve_protocol(protocol, run_contract, protocol_condition=None):
             "P1": STATED,
             "P2": RESAMPLING,
             "P3": REPEATED_STATED,
-            "P4": OFFLINE_SELECTIVE,
+            # SP (formerly P4) is the offline selective-prediction analysis.
+            # "P4" is deliberately absent: the label is reserved for a planned
+            # incentivized-deferral call protocol and must not resolve here.
+            "SP": OFFLINE_SELECTIVE,
         }
         try:
             semantics = mapping[protocol]
@@ -861,7 +866,7 @@ def paired_t1_t2_summary(rows, items_by_id, planned_records=None, dropped=(),
 
 
 def selective_prediction(rows):
-    """P4 threshold sweep over an existing confidence signal.
+    """SP threshold sweep over an existing confidence signal.
 
     No model call is involved. At threshold ``tau`` the system accepts every
     item with confidence >= tau and defers the rest. Equal-confidence items
@@ -1145,7 +1150,7 @@ def diagnostic_tag_metrics(rows, draws, seed):
 
 
 def evaluation_view(rows, draws, seed):
-    """Complete metric/P4 view for one fixed item-level aggregation."""
+    """Complete metric/SP view for one fixed item-level aggregation."""
     per_task = {}
     for task in TASKS:
         sub = [row for row in rows if row["task"] == task]
@@ -1155,7 +1160,7 @@ def evaluation_view(rows, draws, seed):
                 "case_weighted": case_weighted_metrics(sub),
                 "reliability": adaptive_bins(sub),
                 "ci": bootstrap(sub, draws, seed),
-                "p4": selective_prediction(sub),
+                "sp": selective_prediction(sub),
             }
     return {
         "overall": {
@@ -1163,7 +1168,7 @@ def evaluation_view(rows, draws, seed):
             "case_weighted": case_weighted_metrics(rows),
             "reliability": adaptive_bins(rows),
             "ci": bootstrap(rows, draws, seed),
-            "p4": selective_prediction(rows),
+            "sp": selective_prediction(rows),
         },
         "per_task": per_task,
         "diagnostic_tags": diagnostic_tag_metrics(rows, draws, seed),
@@ -1319,7 +1324,7 @@ def aggregate(responses, items_by_id, protocol, expected_repeats=None,
     """
     semantics = protocol_semantics(protocol, run_contract, protocol_condition)
     if semantics == OFFLINE_SELECTIVE:
-        raise ValueError("P4 is an offline analysis, not an elicitation response protocol")
+        raise ValueError("SP is an offline analysis, not an elicitation response protocol")
     if semantics == REPEATED_STATED:
         if aggregation != P3_AGGREGATION:
             raise ValueError(
@@ -1878,9 +1883,9 @@ def self_test():
     print(f"\nT1/T2 paired intersection\n  {'ok' if pairing_ok else 'FAIL'}  "
           "planned denominator, visible drops and blocked paired deltas")
 
-    # P4: two items at the same confidence must enter together, and the two
+    # SP: two items at the same confidence must enter together, and the two
     # binary error directions must remain distinguishable for later costs.
-    p4_rows = [
+    sp_rows = [
         {"item_id": "a", "task": "T1", "p": 0.9, "correct": 1,
          "label": "breach", "answer": "breach"},
         {"item_id": "b", "task": "T1", "p": 0.7, "correct": 0,
@@ -1890,30 +1895,30 @@ def self_test():
         {"item_id": "d", "task": "T1", "p": 0.5, "correct": 1,
          "label": "no_breach", "answer": "no_breach"},
     ]
-    p4 = selective_prediction(p4_rows)
-    p4_mid_transitions = {
+    sp = selective_prediction(sp_rows)
+    sp_mid_transitions = {
         (row["task"], row["true_label"], row["predicted_answer"]): row["count"]
-        for row in p4["curve"][2]["misclassification_transitions"]
+        for row in sp["curve"][2]["misclassification_transitions"]
     }
-    p4_mid_rates = {
+    sp_mid_rates = {
         (row["task"], row["true_label"]): row
-        for row in p4["curve"][2]["true_label_error_rates"]
+        for row in sp["curve"][2]["true_label_error_rates"]
     }
-    p4_ok = (
-        [point["accepted"] for point in p4["curve"]] == [0, 1, 3, 4]
-        and abs(p4["curve"][2]["risk"] - (2 / 3)) < 1e-12
-        and p4["breach_directional_metrics_applicable"] is True
-        and p4["curve"][2]["missed_breaches"] == 1
-        and p4["curve"][2]["false_flags"] == 1
-        and p4["curve"][2]["misclassifications"] == 2
-        and p4_mid_transitions == {
+    sp_ok = (
+        [point["accepted"] for point in sp["curve"]] == [0, 1, 3, 4]
+        and abs(sp["curve"][2]["risk"] - (2 / 3)) < 1e-12
+        and sp["breach_directional_metrics_applicable"] is True
+        and sp["curve"][2]["missed_breaches"] == 1
+        and sp["curve"][2]["false_flags"] == 1
+        and sp["curve"][2]["misclassifications"] == 2
+        and sp_mid_transitions == {
             ("T1", "breach", "no_breach"): 1,
             ("T1", "no_breach", "breach"): 1,
         }
-        and p4_mid_rates[("T1", "breach")]["accepted"] == 2
-        and abs(p4_mid_rates[("T1", "breach")]["error_rate"] - 0.5) < 1e-12
-        and p4_mid_rates[("T1", "no_breach")]["error_rate"] == 1.0
-        and abs(p4["aurc"] - (0.25 * 0 + 0.5 * (2 / 3) + 0.25 * 0.5)) < 1e-12
+        and sp_mid_rates[("T1", "breach")]["accepted"] == 2
+        and abs(sp_mid_rates[("T1", "breach")]["error_rate"] - 0.5) < 1e-12
+        and sp_mid_rates[("T1", "no_breach")]["error_rate"] == 1.0
+        and abs(sp["aurc"] - (0.25 * 0 + 0.5 * (2 / 3) + 0.25 * 0.5)) < 1e-12
     )
 
     # T3 and a pooled T1/T3 result must expose their errors through the same
@@ -1927,8 +1932,8 @@ def self_test():
         {"item_id": "w", "task": "T3", "p": 0.60, "correct": 0,
          "label": "upheld", "answer": "overturned"},
     ]
-    p4_t3 = selective_prediction(t3_rows)
-    t3_final = p4_t3["curve"][-1]
+    sp_t3 = selective_prediction(t3_rows)
+    t3_final = sp_t3["curve"][-1]
     t3_transitions = {
         (row["task"], row["true_label"], row["predicted_answer"]): row["count"]
         for row in t3_final["misclassification_transitions"]
@@ -1938,7 +1943,7 @@ def self_test():
         for row in t3_final["true_label_error_rates"]
     }
     t3_ok = (
-        p4_t3["breach_directional_metrics_applicable"] is False
+        sp_t3["breach_directional_metrics_applicable"] is False
         and t3_final["misclassifications"] == 2
         and sum(t3_transitions.values()) == 2
         and t3_transitions == {
@@ -1953,14 +1958,14 @@ def self_test():
         and t3_final["no_breach_false_positive_rate"] is None
     )
 
-    p4_pooled = selective_prediction(p4_rows + t3_rows)
-    pooled_final = p4_pooled["curve"][-1]
+    sp_pooled = selective_prediction(sp_rows + t3_rows)
+    pooled_final = sp_pooled["curve"][-1]
     pooled_transition_tasks = {
         row["task"] for row in pooled_final["misclassification_transitions"]
         if row["count"]
     }
     pooled_ok = (
-        p4_pooled["breach_directional_metrics_applicable"] is False
+        sp_pooled["breach_directional_metrics_applicable"] is False
         and pooled_final["misclassifications"] == 4
         and sum(row["count"] for row in pooled_final["misclassification_transitions"]) == 4
         and pooled_transition_tasks == {"T1", "T3"}
@@ -1968,10 +1973,10 @@ def self_test():
         and all(
             sum(row["count"] for row in point["misclassification_transitions"])
             == point["misclassifications"]
-            for point in p4_pooled["curve"]
+            for point in sp_pooled["curve"]
         )
     )
-    legacy_t4 = selective_prediction([{**p4_rows[1], "task": "T4"}])
+    legacy_t4 = selective_prediction([{**sp_rows[1], "task": "T4"}])
     legacy_t4_final = legacy_t4["curve"][-1]
     legacy_t4_ok = (
         legacy_t4["breach_directional_metrics_applicable"] is False
@@ -1980,14 +1985,14 @@ def self_test():
         and sum(row["count"] for row in
                 legacy_t4_final["misclassification_transitions"]) == 1
     )
-    p4_ok = p4_ok and t3_ok and pooled_ok and legacy_t4_ok
-    if not p4_ok:
-        failures.append(("P4 generic risk/coverage", {
-            "breach_space": p4, "t3": p4_t3, "pooled": p4_pooled,
+    sp_ok = sp_ok and t3_ok and pooled_ok and legacy_t4_ok
+    if not sp_ok:
+        failures.append(("SP generic risk/coverage", {
+            "breach_space": sp, "t3": sp_t3, "pooled": sp_pooled,
             "legacy_t4": legacy_t4,
         }, "generic transitions/rates retain every T1/T3 error", None, None))
-    print(f"\nP4 selective prediction\n  {'ok' if p4_ok else 'FAIL'}  "
-          f"tie-aware generic T1/T3/pooled errors, AURC={p4['aurc']:.4f}")
+    print(f"\nSP selective prediction\n  {'ok' if sp_ok else 'FAIL'}  "
+          f"tie-aware generic T1/T3/pooled errors, AURC={sp['aurc']:.4f}")
 
     # New P2 runs use exact repeated requests and a fixed K. Missing or
     # duplicate receipts must invalidate the whole item instead of silently
@@ -2097,18 +2102,26 @@ def self_test():
         protocol_semantics("P1", ACTIVE_RUN_CONTRACT) == STATED
         and protocol_semantics("P2", ACTIVE_RUN_CONTRACT) == RESAMPLING
         and protocol_semantics("P3", ACTIVE_RUN_CONTRACT) == REPEATED_STATED
-        and protocol_semantics("P4", ACTIVE_RUN_CONTRACT) == OFFLINE_SELECTIVE
+        and protocol_semantics("SP", ACTIVE_RUN_CONTRACT) == OFFLINE_SELECTIVE
         and resolve_protocol("P1", ACTIVE_RUN_CONTRACT,
                              REPEATED_STATED)["active_protocol"] == "P3"
         and protocol_semantics("P1", None) == RESAMPLING
         and protocol_semantics("P2", None) == STATED
         and protocol_semantics("P3", None) == LEGACY_REVEALED_PREFERENCE
     )
+    # "P4" is reserved for a planned incentivized-deferral protocol and must
+    # not resolve in the active namespace until that protocol is defined.
+    try:
+        protocol_semantics("P4", ACTIVE_RUN_CONTRACT)
+        namespace_ok = False
+    except ValueError:
+        pass
     if not namespace_ok:
         failures.append(("protocol namespace mapping", None,
                          "active and archived identifiers remain distinct", None, None))
     print(f"\nProtocol namespace mapping\n  {'ok' if namespace_ok else 'FAIL'}  "
-          "active P1/P2/P3/P4, explicit P1R alias, and legacy ids remain distinct")
+          "active P1/P2/P3 + SP, explicit P1R alias, reserved P4, and legacy "
+          "ids remain distinct")
 
     horizon_plan = [
         {"task": "T1", "task_rank": rank} for rank in (1, 3)
@@ -2156,7 +2169,7 @@ def self_test():
             print(f"  {f[0]}: got {f[1]}")
         return 1
     print(f"\nOK: {len(cases)} legacy-indifference cases + {len(auroc_cases)} AUROC cases "
-          "+ weighting/clustering + paired T1/T2 + P4 risk/coverage + P2 exact-K "
+          "+ weighting/clustering + paired T1/T2 + SP risk/coverage + P2 exact-K "
           "completeness + protocol namespace + receipt/output guards pass.")
     return 0
 

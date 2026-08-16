@@ -35,12 +35,14 @@ readable for archive scoring but is not emitted by the active generator.
 | P1 | 1 | model's stated probability that its answer is correct |
 | P2 | K (initially 7) | modal-answer frequency across byte-identical requests |
 | P3 | K (initially 7) | linear pool of repeated, oriented stated probabilities |
-| P4 | 0 new calls | threshold/risk–coverage analysis of completed P1/P2/P3 rows |
+| SP | 0 new calls | threshold/risk–coverage analysis of completed P1/P2/P3 rows |
 
 The protocol namespace was reordered before fresh results began. Archived
 files are not renamed: legacy P2 means stated confidence, legacy P1 means
 repeated verdicts, and legacy P3 means the retired lottery experiment. Their
-run contract keeps those historical meanings distinct from current P1–P4.
+run contract keeps those historical meanings distinct from current P1–P3
+and SP (offline selective prediction, formerly presented as P4; the P4 label
+is reserved for a planned incentivized-deferral protocol).
 
 P2 fixes the canonical prompt and model configuration. Repeat number is ledger
 metadata only and never enters the request, so K=10 is a strict top-up of K=7.
@@ -156,7 +158,7 @@ set after a credit or transport failure.
 The run manifest refuses a changed item-bank hash, model/protocol/config hash
 or request identity. Start a new run directory for any such change.
 
-## Scoring and P4
+## Scoring and SP
 
 ```bash
 python3 -B bench/score.py --run bench/runs/<run>
@@ -170,7 +172,7 @@ Scoring reports accuracy, Brier score, equal-mass ECE, AUROC, reliability bins
 and source-report-sibling-blocked intervals, plus an equal-primary-case
 sensitivity. P3 additionally reports its linear-pool primary view, repeated-call
 draws, single-draw estimand, within-item dispersion and secondary vote view.
-P4 adds the attainable confidence-threshold risk–coverage curve and AURC to
+SP adds the attainable confidence-threshold risk–coverage curve and AURC to
 every completed confidence signal without any API call. When T1 and T2 are both present, the scorer also
 reports their exact paired intersection, answer changes and paired metric
 deltas. P2/P3 items are included only when every repeat through the requested

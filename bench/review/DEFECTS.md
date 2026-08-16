@@ -2197,3 +2197,16 @@ current post-edit hash (claude-opus-5 and gpt-5.6-sol runs). Any other
 runner drift still fails closed. Standing rule going forward: treat
 `bench/run.py` as byte-frozen while runs are active; extend the lineage set
 only with a reviewed request-identical diff and a dated entry here.
+
+## Runner docstring lineage (2026-08-16) — P4 renamed SP
+
+`bench/run.py` received a second documentation-only edit: the module
+docstring's protocol summary now calls the offline selective-prediction
+analysis SP (formerly presented as P4; the P4 label is reserved for a
+planned incentivized-deferral protocol). No request-building code changed —
+the diff touches only the docstring lines describing the offline analysis.
+The exporter's reviewed lineage set now carries three hashes: `c2d603af…`
+(pre-2026-08-15), `e35f47bb8ab4a485efde85de7dcd65ef2a1483f7dcc3906302a59f11358ebe9d`
+(2026-08-15 afternoon through 2026-08-16, all currently active manifests),
+and the current post-rename hash. Any other runner drift still fails
+closed.

@@ -348,9 +348,9 @@ class ScoreProvenanceTests(unittest.TestCase):
                 "--run", str(run_dir), "--items", str(bank), "--draws", "2",
             ]), 0)
             scores = json.loads((run_dir / "scores.json").read_text(encoding="utf-8"))
-            final = scores["per_task"]["T3"]["p4"]["curve"][-1]
+            final = scores["per_task"]["T3"]["sp"]["curve"][-1]
             self.assertFalse(
-                scores["per_task"]["T3"]["p4"]
+                scores["per_task"]["T3"]["sp"]
                 ["breach_directional_metrics_applicable"])
             self.assertEqual(final["misclassifications"], 1)
             self.assertEqual(final["misclassification_transitions"], [{
