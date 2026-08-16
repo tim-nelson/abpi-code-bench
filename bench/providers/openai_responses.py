@@ -38,6 +38,7 @@ library over HTTPS.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import math
@@ -46,6 +47,7 @@ import pathlib
 import re
 import secrets
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -928,6 +930,81 @@ def execute_smoke(canonical: dict[str, Any], transport: Any) -> dict[str, Any]:
                               requested_utc=requested_utc)
 
 
+def _read_existing_live_receipts(path: pathlib.Path | str,
+                                 canonical_ids: set[str]) -> set[str]:
+    path = pathlib.Path(path)
+    if not path.exists():
+        return set()
+    done: set[str] = set()
+    for row in read_jsonl(path):
+        call_id = row.get("call_id")
+        if call_id not in canonical_ids:
+            raise AdapterError(f"{path}: receipt {call_id!r} is not in the canonical file")
+        done.add(call_id)
+    return done
+
+
+def run_live(canonical_path: pathlib.Path | str, output_path: pathlib.Path | str,
+             *, max_calls: int, transport: Any, concurrency: int = 1,
+             progress_every: int = 25, print_fn=print) -> dict[str, int]:
+    """Resumable live Responses executor for small probe runs.
+
+    Same receipt semantics as ``providers.openai_compat.run_live``: append-only
+    normalized receipts written whole-line + fsync by one thread at a time;
+    resume skips any call_id that already has a receipt in ``output_path``
+    (retries of failed calls therefore go through a fresh missing-only export
+    and a fresh output file). Live calls pay the undiscounted rate — use the
+    batch flow for large arms; this exists so a few-hundred-call probe does
+    not sit in the batch queue.
+    """
+    if not isinstance(max_calls, int) or max_calls < 1:
+        raise AdapterError("--max-calls must be a positive integer hard cap")
+    if not isinstance(concurrency, int) or concurrency < 1:
+        raise AdapterError("--concurrency must be a positive integer")
+    rows = load_canonical_rows(canonical_path)
+    if len(rows) > max_calls:
+        raise AdapterError(
+            f"refusing: canonical file contains {len(rows)} rows, which exceeds "
+            f"--max-calls {max_calls}; approve a larger cap explicitly")
+    canonical_ids = {row["call_id"] for row in rows}
+    done = _read_existing_live_receipts(output_path, canonical_ids)
+    pending = [row for row in rows if row["call_id"] not in done]
+    counts = {"planned": len(rows), "skipped": len(done), "attempted": 0,
+              "completed": 0, "failed": 0, "quarantined": 0}
+    output_path = pathlib.Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer_lock = threading.Lock()
+    with output_path.open("a", encoding="utf-8") as fh:
+        def one(row: dict[str, Any]) -> None:
+            receipt = execute_smoke(row, transport)
+            with writer_lock:
+                fh.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+                counts["attempted"] += 1
+                if receipt.get("quarantine"):
+                    counts["quarantined"] += 1
+                elif receipt.get("error"):
+                    counts["failed"] += 1
+                else:
+                    counts["completed"] += 1
+                if counts["attempted"] % progress_every == 0:
+                    print_fn(
+                        f"progress: {counts['attempted']}/{len(pending)} calls "
+                        f"(completed={counts['completed']} failed={counts['failed']} "
+                        f"quarantined={counts['quarantined']} skipped={counts['skipped']})")
+
+        if concurrency == 1:
+            for row in pending:
+                one(row)
+        else:
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=concurrency) as pool:
+                for future in [pool.submit(one, row) for row in pending]:
+                    future.result()
+    return counts
+
+
 def submit_batch(canonical_path: pathlib.Path | str, batch_path: pathlib.Path | str,
                  expect_requests: int, transport: Any) -> dict[str, Any]:
     batch_path = pathlib.Path(batch_path)
@@ -1247,6 +1324,17 @@ def build_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--output", required=True, help="new normalized-result JSONL")
     _add_live_args(smoke, execute=True)
 
+    live = commands.add_parser(
+        "run-live", help="resumable live Responses executor for small probe runs")
+    live.add_argument("--canonical", required=True, help="canonical JSONL export")
+    live.add_argument("--output", required=True,
+                      help="append-only normalized-result JSONL (resumable)")
+    live.add_argument("--max-calls", required=True, type=int,
+                      help="approved hard cap; refused if canonical rows exceed it")
+    live.add_argument("--concurrency", type=int, default=1,
+                      help="maximum calls in flight (default 1 = sequential)")
+    _add_live_args(live, execute=True)
+
     submit = commands.add_parser("batch-submit", help="upload and create one OpenAI Batch")
     submit.add_argument("--canonical", required=True,
                         help="matching provider-neutral canonical JSONL")
@@ -1310,6 +1398,19 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"smoke completed for {canonical['call_id']} -> {args.output}")
             return 0
+
+        if args.command == "run-live":
+            if not args.execute:
+                raise AdapterError("run-live requires --execute; no request was sent")
+            counts = run_live(args.canonical, args.output,
+                              max_calls=args.max_calls,
+                              transport=_transport(args),
+                              concurrency=args.concurrency)
+            print(f"run-live: planned={counts['planned']} skipped={counts['skipped']} "
+                  f"attempted={counts['attempted']} completed={counts['completed']} "
+                  f"failed={counts['failed']} quarantined={counts['quarantined']} "
+                  f"-> {args.output}")
+            return 0 if not counts["failed"] and not counts["quarantined"] else 3
 
         if args.command == "batch-submit":
             if not args.execute:
