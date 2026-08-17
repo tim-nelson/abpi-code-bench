@@ -24,10 +24,22 @@
   "glm-5.2-default-p3",
   "deepseek-v4-pro-default-p1",
   "deepseek-v4-pro-default-p3",
-  "grok-4.6-default-p3"
+  "grok-4.6-default-p3",
+  "kimi-k3-default-p1"
  ],
  "leaderboard_boards": [],
  "leaderboard_excluded": [],
+ "durable_losses": {
+  "kimi-k3-default-p1": {
+   "missing_call_ids": [
+    "call-t1-000078-r001-10e810e76f9d7a23cc47",
+    "call-t3-000126-r001-0520b17e839e04f1176f",
+    "call-t3-000164-r001-337e75511950665ba7e7"
+   ],
+   "reason": "reasoning-length truncation at the pinned 4,096-token cap; durable across repeated byte-identical retries (T1 item: 12 attempts / 8 hosts / 2 precisions; two T3 items: 4-6 attempts each)",
+   "defects_ref": "FINDINGS 0.3 dagger + 0.35"
+  }
+ },
  "p4": {
   "core_run_ids": [
    "claude-sonnet-5-medium-p4",

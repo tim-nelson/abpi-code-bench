@@ -21,14 +21,15 @@ heavy per-item payloads go to `static/data/` and are fetched on demand.
                      so site/src/lib/review.js migrates its localStorage
                      store through this map
   static/data/items/<id>.json     per item: the EXACT model-facing prompts
-                     (built through bench/run.py's own request builder, so
+                     (built through bench/run.py's own request builder — and,
+                     for P4, bench/p4_plan.py's — so
                      they are byte-identical to the canonical exported request), the full
                      untruncated extract, and — separately marked — the
                      withheld label with its receipts and the PMCPA case URL
 
 Nothing here is a new source of truth: labels come from bench/items.jsonl,
 receipts from data/l2/cases.jsonl, case URLs from data/manifest.jsonl, and
-prompts from bench/run.py. The default export contains the full active bank;
+prompts from bench/run.py and bench/p4_plan.py. The default export contains the full active bank;
 an explicitly requested smaller review subset is deterministic in --seed.
 """
 
@@ -105,6 +106,19 @@ def site_method_key(value):
 def load_run_module():
     """Import bench/run.py so prompts are built by the runner, not a copy."""
     spec = importlib.util.spec_from_file_location("bench_run", BENCH / "run.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_p4_plan_module():
+    """Import bench/p4_plan.py so the P4 prompt is the planner's, not a copy."""
+    if str(BENCH) not in sys.path:
+        # p4_plan.py imports run/p1r_plan as top-level modules; running the
+        # exporter from the repo root already puts bench/ first on the path,
+        # but an import from elsewhere must not silently miss it.
+        sys.path.insert(0, str(BENCH))
+    spec = importlib.util.spec_from_file_location("bench_p4_plan", BENCH / "p4_plan.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -273,7 +287,8 @@ def load_active_results(path=ACTIVE_RESULTS_PATH):
         "leaderboard_excluded": [],
     }
     if not path.exists():
-        return {**empty, "p4": {"core_run_ids": [], "qualification_run_ids": []}}
+        return {**empty, "p4": {"core_run_ids": [], "qualification_run_ids": []},
+                "durable_losses": {}}
     data = json.loads(path.read_text(encoding="utf-8"))
     for key in empty:
         if key not in data:
@@ -325,6 +340,36 @@ def load_active_results(path=ACTIVE_RESULTS_PATH):
         if overlap:
             sys.exit(f"{path}: P4 run(s) may not enter active_run_ids — the "
                      f"P1-P3 scorer cannot read them: {overlap}")
+
+    # Durable losses: a run registers when every planned call is either
+    # parsed or a receipted durable loss. This block names each run's lost
+    # calls with the standing reason; the entry is a claim only —
+    # verified_durable_loss() proves it against the archive before any run
+    # with a gap registers. Unregistered gaps are fatal.
+    losses = data.get("durable_losses")
+    if losses is None:
+        data["durable_losses"] = {}
+    else:
+        if not isinstance(losses, dict):
+            sys.exit(f"{path}: durable_losses must be a JSON object")
+        for run_id, entry in sorted(losses.items()):
+            if run_id not in declared:
+                sys.exit(f"{path}: durable_losses names {run_id!r}, "
+                         "which is not an active run")
+            if not isinstance(entry, dict):
+                sys.exit(f"{path}: durable_losses[{run_id!r}] must be "
+                         "a JSON object")
+            ids = entry.get("missing_call_ids")
+            if (not isinstance(ids, list) or not ids
+                    or any(not isinstance(c, str) or not c for c in ids)
+                    or len(ids) != len(set(ids))):
+                sys.exit(f"{path}: durable_losses[{run_id!r}]."
+                         "missing_call_ids must be a non-empty list of "
+                         "unique call ids")
+            for key in ("reason", "defects_ref"):
+                if not isinstance(entry.get(key), str) or not entry[key]:
+                    sys.exit(f"{path}: durable_losses[{run_id!r}] "
+                             f"requires a non-empty {key}")
     return data
 
 
@@ -447,8 +492,65 @@ def stratified_sample(items, n, seed):
     return [by_id[i] for i in order]
 
 
-def build_prompts(run_mod, item):
-    """Exactly what the model is sent, for both live protocols."""
+# P4's five core calls on one item differ in exactly one integer — the points a
+# referral costs (bench/P4_SPEC.md 3) — so the site shows ONE text with the cost
+# slot left open rather than five near-identical prompts, and names the grid
+# beside it. The open slot is not a hand-written paraphrase: it is p4_plan's own
+# template with the cost argument left unsubstituted, and every grid level must
+# reproduce the planner's system prompt byte-for-byte or the export refuses.
+P4_COST_PLACEHOLDER = "{c}"
+P4_PROMPT_CONDITION = "core"
+
+
+def build_p4_prompt(run_mod, p4_mod, item, ns, p1_params):
+    """The P4 request for one item, cost left as `{c}`.
+
+    Returns None for a task P4 does not serve, so the tray simply has no P4 tab
+    there rather than showing a prompt no run could have sent.
+    """
+    if item.get("task") not in p4_mod.ACTIVE_TASKS:
+        return None
+    cond = p4_mod.CONDITIONS[P4_PROMPT_CONDITION]
+    grid = list(cond["grid"])
+    args = SimpleNamespace(**vars(ns), condition=P4_PROMPT_CONDITION)
+    # P4's variant is P1's canonical one (rendition 0, canonical block order);
+    # taking it from run.py's own P1 plan is what makes the two tabs' user
+    # messages the same bytes rather than merely look alike.
+    variant = run_mod.plan_variants(item, "P1", 1, ns.seed, [])[0]
+    rendered = {c: p4_mod.p4_request(item, variant, args, c) for c in grid}
+
+    first = rendered[grid[0]]
+    instruction = p4_mod.render_instruction(grid[0], cond["x"])
+    system = (first["system"][: -len(instruction)]
+              + p4_mod.P4_INSTRUCTION_TEMPLATE.format(
+                  x=format(cond["x"], ","), c=P4_COST_PLACEHOLDER))
+    for c in grid:
+        want = rendered[c]
+        got = system.replace(P4_COST_PLACEHOLDER, format(c, ","))
+        if got != want["system"]:
+            sys.exit(f"{item['item_id']}: the P4 cost placeholder does not "
+                     f"reproduce the planner's system prompt at c={c}")
+        if want["messages"] != p1_params["messages"]:
+            sys.exit(f"{item['item_id']}: P4's user message at c={c} diverged "
+                     "from P1's; P4_SPEC.md 3 requires them byte-identical")
+    return {
+        "system": system,
+        "user": first["messages"][0]["content"],
+        "schema": first["output_config"]["format"]["schema"],
+        "block_order": list(variant["block_order"]),
+        "rendition": variant["rendition"],
+        "cost_placeholder": P4_COST_PLACEHOLDER,
+        "cost_grid": grid,
+        "cost_x": cond["x"],
+    }
+
+
+def build_prompts(run_mod, p4_mod, item):
+    """Exactly what the model is sent, for every live protocol.
+
+    P3 has no entry of its own: it repeats P1's request byte-for-byte, which is
+    why the site's tray labels that tab "P1 / P3".
+    """
     ns = SimpleNamespace(model="claude-sonnet-5", max_tokens=4096,
                          thinking="adaptive", effort=None, seed=11)
     out = {}
@@ -462,7 +564,119 @@ def build_prompts(run_mod, item):
             "block_order": list(variant["block_order"]),
             "rendition": variant["rendition"],
         }
+        if protocol == "P1":
+            p1_params = params
+    p4 = build_p4_prompt(run_mod, p4_mod, item, ns, p1_params)
+    if p4 is not None:
+        out["P4"] = p4
     return out
+
+
+# --- durable losses -----------------------------------------------------------
+# A run registers when every planned call is either parsed or a receipted
+# durable loss. The registry's durable_losses block names each lost call; the
+# archive must prove it: the listed calls exactly equal the request catalog
+# minus the parsed receipts, every listed call has at least one
+# failure/quarantine receipt among the run dir's raw receipt files, and none
+# has a parsed receipt anywhere. Registered runs score and display at parsed
+# denominators and their board entries carry the loss counts; any other
+# incompleteness refuses.
+
+_VERIFIED_LOSSES = {}
+_CANONICAL_RUN_FILES = {"requests.jsonl", "responses.jsonl", "ledger.jsonl"}
+
+
+def _receipt_rows(path):
+    """Tolerant JSONL iterator for raw receipt files (never the canon)."""
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                yield row
+
+
+def verified_durable_loss(run_id):
+    """The verified durable-loss register for one run, or None.
+
+    Verification always runs against the CANONICAL archive dir (bench/runs/),
+    not any staged copy: the loss evidence lives in the raw retry and
+    normalization receipt files, which scoring snapshots do not carry. A
+    registered run that fails any check refuses the whole export.
+    """
+    if run_id in _VERIFIED_LOSSES:
+        return _VERIFIED_LOSSES[run_id]
+    entry = (load_active_results().get("durable_losses") or {}).get(run_id)
+    if entry is None:
+        _VERIFIED_LOSSES[run_id] = None
+        return None
+    run_dir = BENCH / "runs" / run_id
+    requests_by_id = {row["call_id"]: row
+                      for row in read_jsonl(run_dir / "requests.jsonl")}
+    responded = {row.get("call_id") for row in read_jsonl(run_dir / "responses.jsonl")}
+    listed = set(entry["missing_call_ids"])
+    missing_actual = set(requests_by_id) - responded
+    if listed != missing_actual:
+        sys.exit(
+            f"durable-loss register for {run_id!r} lists "
+            f"{sorted(listed)} but catalog-minus-parsed is "
+            f"{sorted(missing_actual)}; the document and the archive disagree")
+    # Raw receipt evidence: a failure/quarantine receipt is a row that names
+    # the call and shows an attempt OUTCOME (an error object, a stop reason,
+    # or a provider response body) without a parsed answer. Outbound request
+    # payload rows (batch/canonical exports) name the call but show no
+    # outcome and count for nothing.
+    failure_rows = {cid: 0 for cid in listed}
+    parsed_rows = {cid: 0 for cid in listed}
+    for path in sorted(run_dir.glob("*.jsonl")):
+        if path.name == "requests.jsonl":
+            continue
+        for row in _receipt_rows(path):
+            cid = row.get("call_id") or row.get("custom_id")
+            if cid not in listed:
+                continue
+            if ((row.get("parsed") or {}).get("answer")) is not None:
+                parsed_rows[cid] += 1
+                continue
+            if (row.get("error") is not None
+                    or row.get("stop_reason") is not None
+                    or row.get("response") is not None):
+                failure_rows[cid] += 1
+    defects = []
+    for cid in sorted(listed):
+        if parsed_rows[cid]:
+            defects.append(f"{cid} has {parsed_rows[cid]} parsed receipt(s) "
+                           "in the raw files — not a loss")
+        if not failure_rows[cid]:
+            defects.append(f"{cid} has no failure/quarantine receipt")
+    if defects:
+        sys.exit(f"durable-loss register for {run_id!r} failed verification: "
+                 + "; ".join(defects))
+    missing_items = sorted(
+        ({"call_id": cid,
+          "task": requests_by_id[cid].get("task"),
+          "task_rank": requests_by_id[cid].get("task_rank"),
+          "item_id": requests_by_id[cid].get("item_id"),
+          "prompt_sha256": requests_by_id[cid].get("prompt_sha256")}
+         for cid in listed), key=lambda row: row["call_id"])
+    info = {
+        "run_id": run_id,
+        "reason": entry["reason"],
+        "defects_ref": entry["defects_ref"],
+        "missing_call_ids": sorted(listed),
+        "n_missing": len(listed),
+        "n_planned": len(requests_by_id),
+        "n_parsed": len(requests_by_id) - len(listed),
+        "missing_items": missing_items,
+        "missing_item_ids": sorted({row["item_id"] for row in missing_items}),
+    }
+    _VERIFIED_LOSSES[run_id] = info
+    return info
 
 
 def require_complete_active_run(run_id, run_dir, current_items_path=None):
@@ -491,6 +705,14 @@ def require_complete_active_run(run_id, run_dir, current_items_path=None):
     planned = coverage.get("planned")
     expected_calls = manifest.get("n_calls_planned")
     expected_items = manifest.get("n_items_planned")
+    # A verified durable-loss register shifts the expected receipt counts by
+    # exactly its lost calls/items (scored at parsed denominators); every
+    # other completeness fact must still hold, and unregistered gaps refuse.
+    shortfall = verified_durable_loss(run_id)
+    n_missing_calls = shortfall["n_missing"] if shortfall else 0
+    n_missing_items = len(shortfall["missing_item_ids"]) if shortfall else 0
+    expected_parsed = (planned - n_missing_calls
+                       if isinstance(planned, int) else planned)
     defects = []
     if scores.get("protocol_namespace") != "active":
         defects.append(
@@ -499,21 +721,33 @@ def require_complete_active_run(run_id, run_dir, current_items_path=None):
         defects.append(
             f"score planned={planned}, catalog={request_count}, manifest={expected_calls}")
     for key in ("parsed", "receipted", "parsed_receipts"):
-        if coverage.get(key) != planned:
-            defects.append(f"{key}={coverage.get(key)} (want {planned})")
-    for key in ("pending", "errors", "calls_with_duplicate_parsed_receipts",
+        if coverage.get(key) != expected_parsed:
+            defects.append(f"{key}={coverage.get(key)} (want {expected_parsed})")
+    if coverage.get("pending", 0) != n_missing_calls:
+        defects.append(f"pending={coverage.get('pending')} "
+                       f"(want {n_missing_calls})")
+    for key in ("errors", "calls_with_duplicate_parsed_receipts",
                 "orphan_receipt_call_ids", "unlinked_response_rows",
                 "unlinked_ledger_rows", "calls_outside_horizon",
                 "receipt_calls_outside_horizon"):
         if coverage.get(key, 0) != 0:
             defects.append(f"{key}={coverage.get(key)}")
     if (coverage.get("items_planned") != expected_items
-            or coverage.get("items_scored") != expected_items):
+            or coverage.get("items_scored") != expected_items - n_missing_items):
         defects.append(
             f"items scored/planned/manifest={coverage.get('items_scored')}/"
-            f"{coverage.get('items_planned')}/{expected_items}")
-    if scores.get("dropped"):
-        defects.append(f"dropped={len(scores['dropped'])}")
+            f"{coverage.get('items_planned')}/{expected_items}"
+            + (f" (durable losses allow {expected_items - n_missing_items} scored)"
+               if shortfall else ""))
+    dropped = scores.get("dropped") or []
+    if shortfall:
+        dropped_ids = sorted({str(row.get("item_id")) for row in dropped})
+        if dropped_ids != shortfall["missing_item_ids"]:
+            defects.append(
+                f"dropped items {dropped_ids} do not equal the registered "
+                f"durable-loss items {shortfall['missing_item_ids']}")
+    elif dropped:
+        defects.append(f"dropped={len(dropped)}")
     if public_protocol(manifest) not in {"P1", "P2", CURRENT_P3_PROTOCOL}:
         defects.append(
             f"active provider-run protocol={public_protocol(manifest)!r}; "
@@ -1641,15 +1875,45 @@ def _automatic_board_candidates(score_mod, active_runs, current_items_path):
                 requests, responses, ledger, None, repeats, semantics)
         except ValueError as exc:
             raise SystemExit(f"automatic leaderboard {run_id}: {exc}") from exc
+        shortfall = verified_durable_loss(run_id)
         if (coverage["calls_pending"] or coverage["calls_errors"]
                 or coverage["calls_parsed"] != coverage["calls_planned"]):
-            sys.exit(f"automatic leaderboard {run_id}: cumulative receipts are incomplete")
+            # A verified durable-loss register accounts for exactly its lost
+            # calls as pending-without-receipt; anything beyond that refuses.
+            documented = (
+                shortfall is not None
+                and coverage["calls_errors"] == 0
+                and coverage["calls_pending"] == shortfall["n_missing"]
+                and coverage["calls_parsed"]
+                == coverage["calls_planned"] - shortfall["n_missing"])
+            if not documented:
+                sys.exit(f"automatic leaderboard {run_id}: cumulative receipts are incomplete")
 
         for task in sorted({rec["task"] for rec in records}):
             task_records = [rec for rec in records if rec["task"] == task]
             rank_items = collections.defaultdict(set)
             for rec in task_records:
                 rank_items[int(rec["task_rank"])].add(rec["item_id"])
+            # Lost calls keep their rank in the sequence: the request
+            # catalog witnesses which item every lost call asked, so the
+            # cumulative prefix stays contiguous with receipted holes rather
+            # than a silently shorter horizon.
+            task_shortfall = None
+            if shortfall:
+                lost = [row for row in shortfall["missing_items"]
+                        if row["task"] == task]
+                if lost:
+                    for row in lost:
+                        rank_items[int(row["task_rank"])].add(row["item_id"])
+                    task_shortfall = {
+                        "item_ids": sorted({row["item_id"] for row in lost}),
+                        "prompts": {row["item_id"]: row["prompt_sha256"]
+                                    for row in lost},
+                        "reason": shortfall["reason"],
+                        "defects_ref": shortfall["defects_ref"],
+                        "run_parsed": shortfall["n_parsed"],
+                        "run_planned": shortfall["n_planned"],
+                    }
             ranks = sorted(rank_items)
             horizon = max(ranks, default=0)
             if ranks != list(range(1, horizon + 1)):
@@ -1662,6 +1926,7 @@ def _automatic_board_candidates(score_mod, active_runs, current_items_path):
             if any(len(ids) != 1 for ids in rank_items.values()):
                 sys.exit(f"automatic leaderboard {run_id} {task}: one rank names multiple items")
             candidates.append({
+                "shortfall": task_shortfall,
                 "run_id": run_id,
                 "model": run_rec.get("model") or manifest.get("model"),
                 "protocol": protocol,
@@ -1755,6 +2020,7 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 candidate["source_protocol"], candidate["contract"],
                 candidate["source_protocol_condition"]))
         candidate.setdefault("derived", None)
+        candidate.setdefault("shortfall", None)
         if candidate["derived"] not in (None, DERIVED_VOTE_FROM_P3):
             sys.exit(f"automatic leaderboard {candidate['run_id']}: unknown derived "
                      f"marker {candidate['derived']!r}. Refusing.")
@@ -1826,7 +2092,20 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 sys.exit(
                     f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
                     f"{exc}. Refusing.")
-            if dropped or {row["item_id"] for row in rows} != set(common_sequence):
+            # Durable losses may leave receipted holes inside the common
+            # prefix: the entry then scores every prefix item EXCEPT exactly
+            # those, at parsed denominators, and score.py reports each hole
+            # as a dropped row (0 parsed receipts). Any dropped row that is
+            # NOT a registered lost item, or any other divergence from the
+            # exact common prefix, refuses.
+            missing_here = (set(candidate["shortfall"]["item_ids"])
+                            & set(common_sequence)
+                            if candidate["shortfall"] else set())
+            scored_ids = {row["item_id"] for row in rows}
+            # aggregate() reports drops as (item_id, reason) pairs.
+            dropped_ids = {row[0] for row in dropped}
+            if (dropped_ids - missing_here
+                    or scored_ids != set(common_sequence) - missing_here):
                 sys.exit(
                     f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
                     f"common prefix did not score exactly ({dropped[:1]}). Refusing.")
@@ -1853,6 +2132,13 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
             prompt_by_item = collections.defaultdict(set)
             for rec in selected:
                 prompt_by_item[rec["item_id"]].add(rec.get("prompt_sha256"))
+            # A receipted hole still has a planned prompt identity: the
+            # request catalog witnessed what the lost call asked, so the
+            # byte-identical-prompt claim is checked for it too rather than
+            # skipped.
+            for item_id in missing_here:
+                prompt_by_item[item_id].add(
+                    candidate["shortfall"]["prompts"][item_id])
             if any(len(prompt_by_item[item_id]) != 1 for item_id in common_sequence):
                 sys.exit(
                     f"automatic leaderboard {protocol}/{task}/{candidate['run_id']}: "
@@ -1893,6 +2179,19 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                                        if candidate["derived"] == DERIVED_VOTE_FROM_P3
                                        else protocol_condition),
                 "aggregation": aggregation,
+                # The durable-loss marker, only where this board actually
+                # lost calls: which prefix items are receipted losses, at
+                # what denominators, and why (registry wording verbatim).
+                "shortfall": ({
+                    "n_missing": len(missing_here),
+                    "item_ids": sorted(missing_here),
+                    "n_scored": common_n - len(missing_here),
+                    "n_expected": common_n,
+                    "run_parsed": candidate["shortfall"]["run_parsed"],
+                    "run_planned": candidate["shortfall"]["run_planned"],
+                    "reason": candidate["shortfall"]["reason"],
+                    "defects_ref": candidate["shortfall"]["defects_ref"],
+                } if missing_here else None),
                 **score_mod.metric_set(rows),
                 "mean_p": score_mod.mean_confidence(rows),
                 "ci": score_mod.bootstrap(rows, draws, seed),
@@ -1947,6 +2246,15 @@ def _automatic_cumulative_boards(score_mod, items_by_id, candidates,
                 "byte-identical calls; confidence = modal frequency), marked "
                 f"{DERIVED_VOTE_FROM_P3}. Their P3 prompts also requested a stated "
                 "probability; native P2 prompts are verdict-only.")
+        for entry in entries:
+            entry_shortfall = entry.get("shortfall")
+            if entry_shortfall:
+                caveats.append(
+                    f"{entry['model']} scores {entry_shortfall['n_scored']} of "
+                    f"{common_n} board items at parsed denominators: "
+                    f"{entry_shortfall['n_missing']} call(s) are receipted "
+                    "durable losses. Such losses skew hard, so its reported "
+                    "numbers are likely flattered.")
 
         condition = cohort[0]["condition"]
         if protocol == CURRENT_P3_PROTOCOL:
@@ -2202,6 +2510,7 @@ def main():
         return
 
     run_mod = load_run_module()
+    p4_mod = load_p4_plan_module()
     urls = case_urls()
     verd = verdict_index()
     active_results = load_active_results()
@@ -2338,7 +2647,7 @@ def main():
                 "extract_text": it["inputs"]["extract_text"],
                 "renditions": it["inputs"].get("renditions") or [],
             },
-            "prompts": build_prompts(run_mod, it),
+            "prompts": build_prompts(run_mod, p4_mod, it),
             # WITHHELD from the model — review only. Model outputs sit here
             # because an answer plus a correctness mark leaks the label.
             "withheld": {
