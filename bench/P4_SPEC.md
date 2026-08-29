@@ -120,7 +120,7 @@ canonical JSON, never edits it, and records both `runner_sha256` and its own
 
 - Call identity: `call-{task}-{rank:06d}-c{c:02d}` (e.g.
   `call-t1-000001-c05`), ≤ 64 chars, stable under resume.
-- The planner config hash covers: run contract, both sha256s, model,
+- The planner config hash covers: the manifest `contract` version, both sha256s, model,
   max_tokens, thinking/effort, temperature, X, the full cost grid, and the
   instruction template. Changing any of these is a different run.
 - One canonical request per (item, cost level); missing-only export/import;

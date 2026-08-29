@@ -128,7 +128,7 @@ cost can be applied without rerunning a model.
 
 The historical P3 lottery experiment is archived exploratory work and is not
 part of the active run plan. Its P3 identifier is explicitly legacy: archived
-files are not renamed, and the scorer uses their absent/v1 run contract to
+files are not renamed, and the scorer uses their absent/v1 manifest version to
 distinguish it from the current protocol namespace.
 
 ## 4. Canonical cumulative prefixes

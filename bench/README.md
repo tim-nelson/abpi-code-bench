@@ -40,7 +40,7 @@ readable for archive scoring but is not emitted by the active generator.
 The protocol namespace was reordered before fresh results began. Archived
 files are not renamed: legacy P2 means stated confidence, legacy P1 means
 repeated verdicts, and legacy P3 means the retired lottery experiment. Their
-run contract keeps those historical meanings distinct from current P1–P3
+manifest version keeps those historical meanings distinct from current P1–P3
 and SP (offline selective prediction, formerly presented as P4; the P4 label
 is reserved for a planned incentivized-deferral protocol).
 
@@ -133,22 +133,18 @@ python3 -B bench/run.py \
   --import-results /tmp/<model>-p1-results.jsonl
 ```
 
-After every import or top-up, refresh every ordinary active run and the local
-site with one command:
+After every import or top-up, re-score the run:
 
 ```bash
-python3 -B bench/refresh_active_results.py
+python3 -B bench/score.py --run bench/runs/<model>-p1
 ```
 
-This stages fresh scores for all IDs in `bench/active_results.json`, applies
-the exporter's completeness and provenance checks, then publishes the scores,
-exports site data, runs `svelte-check` and builds the static site. It refuses
-to export if any active run still has a pending, failed, duplicate, dropped or
-stale call, so a credit interruption leaves the last complete site intact;
-import the resumed receipts and run the same command again. During iterative
-local work, `--fast` performs the same score/export/check path while skipping
-only the production build. `cd site && npm run refresh` and
-`npm run refresh:fast` are equivalent shortcuts.
+An active run is one named in `bench/active_results.json`. The exporter's gate
+(`export_site_data.require_complete_active_run`) refuses any active run that
+still has a pending, failed, duplicate, dropped or stale call, so a credit
+interruption never promotes a partial run; import the resumed receipts and
+re-score. The private review site's one-command refresh and build are not part
+of the public repository.
 
 To grow rank 1 to rank 20, reuse the exact run directory/configuration and
 export to a new file with `--through-items 20`. Completed call IDs are omitted;

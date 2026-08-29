@@ -266,7 +266,7 @@ because it appears exactly once and an unqualified expert is a role in no field.
 (d) **`anonymous` is not a category.** The meta rule that mapped the token
 'Anonymous' to `complainant.category` is removed and the value is out of the
 `l2/schema.json` enum — cheaply feasible, because it is an enum VALUE and the
-key set is untouched, so the SPEC §7.1 one-key-signature contract is unaffected
+key set is untouched, so the SPEC §7.1 one-key-signature rule is unaffected
 and `bench/item_schema.json` (which types the field `string|null`, no enum) did
 not need to change. 185 cases / 947 items move: 178 to `other` (the anonymity
 boolean carries the fact), 5 to health_professional and 2 to
@@ -2227,10 +2227,10 @@ Mechanism (implemented in `run.py`, shared by `p3_plan.py` and
    intermediate, or `current`), a one-line note, and this register. Only
    hashes actually bound by a run manifest, plus the current edition, are
    listed. The registry enumerates every runner hash the two entries above
-   documented (`c2d603af…` uncommitted wave-1, `e35f47bb…` = e460022,
-   `60b6d075…` = afa699e) plus the current edition; `3758e756…` (= f45ba25)
+   documented (`c2d603af…` uncommitted wave-1, `e35f47bb…` = 3473d59,
+   `60b6d075…` = dfe20b5) plus the current edition; `3758e756…` (= 927b764)
    is bound by no manifest and is deliberately absent. The p4 planner list
-   carries all six manifest-bound editions (69ae069 → 239b5b7).
+   carries all six manifest-bound editions (25a3975 → 8d61855).
 2. Growing an existing run directory's horizon under edited code
    (`run.plan_for_run_dir`, and the equivalent paths in `p3_plan.py` /
    `p4_plan.py` `export_batch`) requires: (a) the recorded and current

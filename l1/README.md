@@ -44,7 +44,7 @@ One JSON object per case page, identical in shape across all 1902.
     `text_and_spans()` disagreed, leaving `'1 st'` for `'1st'` in 2.54% of
     heading candidates and 11 mis-anchored spans.
 
-**v2.2 changes** — see [`../verify/v22_build_report.md`](../verify/v22_build_report.md):
+**v2.2 changes** (build report `v22_build_report.md`, private working tree):
 7. `emphasis_spans` on every section and pane — parallel offsets recording which
    words the source emphasised. 14,469 spans across 1,098 files (57.7%).
    Inline tags now close up instead of injecting a space, so `text` changed by
@@ -53,14 +53,14 @@ One JSON object per case page, identical in shape across all 1902.
    `SUBHEADING_OR_CAPTION`. Null rate 82.8% -> 59.7%; the original six are
    unchanged and preserved as `heading_normalised_v1`.
 
-**v2.1 changes** — see [`../verify/v21_build_report.md`](../verify/v21_build_report.md):
+**v2.1 changes** (build report `v21_build_report.md`, private working tree):
 5. The 90-char heading cap is gone as a filter; length is evidence
    (`char_count`) and the gate is now a content signal (no terminal
    punctuation). Added 9,362 candidates, all at `low`.
 6. Headings that open a quotation and never close it are demoted to `low`
    (`unbalanced_quote`): 212 demoted, 0 collateral.
 
-**v2 changes** — see [`../verify/v2_build_report.md`](../verify/v2_build_report.md):
+**v2 changes** (build report `v2_build_report.md`, private working tree):
 1. Heading detection is **graded, not binary**. Every plausible candidate is
    emitted with `heading_evidence` + `heading_confidence` (`high`/`medium`/`low`)
    and `heading_v1_would_emit`. L1 no longer picks a threshold; L2 does.
@@ -111,17 +111,11 @@ order on every file that has them. Build is byte-deterministic. L2 substitutes
 these for the report pane where `derived.jsonl` says `report_pane_mismatch`,
 and uses them as the report body for the summary-only cases.
 
-**Start here:** [`../investigation/L1_VALUES_GUIDE.md`](../investigation/L1_VALUES_GUIDE.md)
-documents every field with real worked examples — including the known-wrong
-values — and every metric with what it does not measure. It is written to be
-read instead of the HTML.
+The field-by-field values guide, the `<li>`/`<br>`/`<img>` flattening audit
+and the per-rater agreement analysis that accompanied the build are working
+notes kept in the private tree; the invariants below are self-contained.
 
-Also: [`../investigation/li_audit.md`](../investigation/li_audit.md) (why
-`<li>`/`<br>`/`<img>` flattening is closed) and
-[`../verify/rater_analysis.md`](../verify/rater_analysis.md) (per-rater
-agreement across all three blind rounds).
-
-## The contract
+## Invariants
 
 - **Every key on every record.** No conditional keys.
 - **Absence is a value:** `null` = genuinely absent in the source, `""` =
@@ -184,8 +178,7 @@ The shape is standardised; the content is not.
 
 ## Known imperfect
 
-Measured, not fixed. Detail in
-[`../verify/v22_build_report.md`](../verify/v22_build_report.md).
+Measured, not fixed. Detail in the v2.2 build report (private working tree).
 
 1. **Emphasis is only ~35% recoverable.** 14,469 spans captured, but 347 of the
    531 `(emphasis added)` markers have no span — the source never encoded the
@@ -210,7 +203,7 @@ Measured, not fixed. Detail in
 10. **15 files** have `PANEL RULING` only glued mid-sentence by a bad PDF→HTML
     conversion.
 
-## Divergences from `survey.md`
+## Divergences from the structural survey
 
 Building L1 corrected two survey figures:
 

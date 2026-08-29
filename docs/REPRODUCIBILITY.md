@@ -1,8 +1,8 @@
 # Reproducibility and source retrieval
 
 The public reproducibility target is a **clean clone plus live retrieval of the
-publication-locked sources**. The repository does not need to contain the raw
-PMCPA website, the private review website or generated benchmark datasets.
+publication-locked sources**: the repository carries the locks and the code,
+and the sources and generated datasets are rebuilt from them.
 
 For a fixed set of retrieved source bytes, the construction pipeline is
 deterministic. A later live retrieval is necessarily conditional: the PMCPA
@@ -11,7 +11,7 @@ tracked byte count and SHA-256 and refuse changed content.
 
 ## What the clone contains
 
-The retrieval contract tracks:
+The tracked retrieval locks cover:
 
 - 1,902 completed-case URLs and their expected HTML filenames, sizes and
   SHA-256 hashes;
@@ -22,18 +22,13 @@ The retrieval contract tracks:
 - parsing code, schemas, repair/adjudication receipts and independent
   verification programs.
 
-The clone does **not** need to contain:
-
-- `data/html/`, `data/pdf/`, `data/code/html/` or `data/code/pdf/`;
-- generated L1 records, L2 cases, Code clause tables or benchmark items;
-- archived subset witnesses or model-run request/response ledgers;
-- the private `site/` review application;
-- provider credentials or model outputs.
-
-The current private working history predates that publication policy and still
-contains some generated/source blobs. Before GitHub publication it must be
-re-laid as a clean history; adding ignore rules alone does not remove an old
-blob from Git history.
+The public history contains the reproducibility core — retrieval locks,
+parsing and evaluation code, schemas, curation receipts, the defect register
+and the tests — re-laid from the private working history, so its commit
+identifiers are its own. The identifiers cited in `bench/code_lineage.json`
+and `bench/review/DEFECTS.md` refer to this history; a private run manifest
+that names a pre-publication commit refers to the same tree under its old
+identifier.
 
 ## One-command rebuild
 
@@ -48,7 +43,7 @@ python3 scrape/bootstrap.py --all
 
 1. retrieve only the locked roster (it does not rediscover or expand the live
    case list);
-2. verify every local source against the publication contract;
+2. verify every local source against the publication locks;
 3. build and validate Code tables, L1, L2 and the T1/T2/T3 item bank.
 
 It makes network requests to the PMCPA source URLs. It makes no provider or LLM

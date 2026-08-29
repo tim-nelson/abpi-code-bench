@@ -1,5 +1,5 @@
 # Downloaded source bytes stay local.  Their URLs and publication hashes are
-# tracked as the retrieval contract; the files themselves are rebuilt with
+# tracked as the retrieval locks; the files themselves are rebuilt with
 # scrape/bootstrap.py.
 data/html/
 data/pdf/
@@ -19,25 +19,25 @@ data/code/pdf_clauses.jsonl
 data/code/pdf_clauses_exclusions.jsonl
 bench/items.jsonl
 bench/exclusions.jsonl
-bench/t5_items.jsonl
-bench/t5_exclusions.jsonl
 bench/subsets/
 
 # Model-evaluation ledgers contain rendered source extracts and stay local.
-# Keep only the operational note in a future clean public history.
-bench/runs/*
-!bench/runs/README.md
+bench/runs/
 
-# The review website is private and is not part of the public repository.
+# Not part of the public repository: the private review website, the
+# dissertation sources and brief, and captured third-party background material
+# (the PMCPA e-learning course payloads and webinar transcripts).
 site/
+dissertation/
+/*.pdf
+data/course/
+data/webinars/
+docs/ABPI_CODE_COURSE.md
 
-# Interpreter/build artefacts.
+# Interpreter/build/OS artefacts.
 __pycache__/
 *.py[cod]
-dissertation/*.aux
-dissertation/*.log
-dissertation/*.out
-dissertation/*.toc
+.DS_Store
 
 # Secrets
 .env

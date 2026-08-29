@@ -428,8 +428,8 @@ discipline:
   structures are never rewritten: they already name the right clause. Every
   correction is written to `data/l2/clause_slot_corrections.jsonl`, which
   `bench/generate.py` reads to book a durable exclusion row for a DELETED
-  row's item-candidates and `bench/id_migrations.py` reads to see a renamed
-  item as renamed. Two guards refuse: a rename onto a clause the slots
+  row's item-candidates and the item-id migration ledger reads to see a
+  renamed item as renamed. Two guards refuse: a rename onto a clause the slots
   already state (it would merge two rows), and two siblings of one shared
   page correcting the same token differently.
 * Independently of any adjudication, the build REFUSES on a published verdict
@@ -470,6 +470,6 @@ PDFs), with the standard manifest discipline. Needed by C5 and bench T1/T6.
 
 Phase-1 build measurements that correct this spec's briefed numbers:
 multi-case files are **97** (not 104), contributing 199 cases → 2,004 case
-objects; complainant appeals **83** (not ~49), respondent 206, both 6,
+objects; complainant appeals **85** (not ~49), respondent 202, both 6,
 unresolved 67; `Sanctions applied` carries exactly one value corpus-wide
 ('Undertaking received') — presence-only information.

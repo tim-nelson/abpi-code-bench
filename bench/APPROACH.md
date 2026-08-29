@@ -113,6 +113,6 @@ archive material.
 Their prompts differ from the active bank and they do not populate the active
 leaderboard. Fresh results begin from an empty leaderboard.
 
-Archived protocol identifiers are immutable. In those absent/v1-contract
+Archived protocol identifiers are immutable. In those absent/v1-manifest
 files, legacy P2 means stated confidence and legacy P1 means repeated verdicts;
 the scorer maps them explicitly rather than rewriting historical runs.

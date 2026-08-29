@@ -1,7 +1,7 @@
 """Offline checks for the public source-retrieval bootstrap.
 
-The tracked manifests are the public contract; the downloaded HTML/PDF bytes
-are deliberately ignored.  This script first checks that the contracts agree
+The tracked manifests are the public locks; the downloaded HTML/PDF bytes
+are deliberately ignored.  This script first checks that the locks agree
 with one another.  ``--require-files`` additionally checks a populated local
 checkout without making requests or changing files.
 """
@@ -179,7 +179,7 @@ def main():
                 problems.append(f"Code source differs from publication lock: {row['file']}")
 
     print(
-        f"source contract: {len(cases)} case URLs, {len(html_lock)} locked HTML, "
+        f"source locks: {len(cases)} case URLs, {len(html_lock)} locked HTML, "
         f"{len(downloads)} locked case PDF, {len(derivations)} PDF derivation, "
         f"{len(code_locked)} locked Code resources, "
         f"{len(code_exclusions)} pinned Code exclusions"
@@ -187,7 +187,7 @@ def main():
     if args.require_files:
         print("local source files: required")
     else:
-        print("local source files: not required (contract-only check)")
+        print("local source files: not required (locks-only check)")
 
     if problems:
         print("PROBLEMS:")
@@ -196,7 +196,7 @@ def main():
         if len(problems) > 30:
             print(f"  - ... and {len(problems) - 30} more")
         return 1
-    print("OK: public source-retrieval contract is internally consistent.")
+    print("OK: the public source-retrieval locks are internally consistent.")
     return 0
 
 

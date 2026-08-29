@@ -1,4 +1,4 @@
-# pmcpa-bench — ABPI Code Bench
+# ABPI Code Bench
 
 An LLM confidence-elicitation benchmark built from adjudicated PMCPA cases
 (UK pharmaceutical self-regulation), supporting an Oxford Statistics
@@ -17,17 +17,14 @@ For the current source roster, the deterministic build produces 10,497 items:
 canonical cases because some reports adjudicate several linked cases.
 
 Only complete post-repair runs explicitly named in
-`bench/active_results.json` populate the private results site. Earlier Phase A
-and pre-repair T3 runs remain historical evidence and are excluded from active
-boards. [FINDINGS.md](docs/FINDINGS.md) is an archive of pilot findings rather
-than a statement of current benchmark performance.
+`bench/active_results.json` are active. Earlier Phase A and pre-repair T3 runs
+remain historical evidence and are excluded from active boards.
 
 ## Rebuild from a clone
 
-Downloaded PMCPA pages, PDFs, generated datasets and the private review website
-are not public-repository inputs. A clone instead carries the source roster,
-URLs, publication byte counts and SHA-256 hashes needed to retrieve and verify
-the source material, then rebuild every data layer.
+A clone carries the source roster: the URLs, publication byte counts and
+SHA-256 hashes needed to retrieve and verify every PMCPA page, PDF and ABPI
+Code resource, and the code to rebuild every data layer from them.
 
 ```bash
 python3 scrape/bootstrap.py --plan   # inspect the exact fetch/build sequence
@@ -39,7 +36,8 @@ project's publication snapshot. It deliberately does not try to adapt to a
 future redesign. If a live source has changed, disappeared or no longer matches
 the publication hash, retrieval fails visibly instead of silently producing a
 different benchmark. See [REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) for the
-precise contract and separate `--fetch`, `--check` and `--build` commands.
+retrieval and build steps in detail, and the separate `--fetch`, `--check` and
+`--build` commands.
 
 No LLM or provider API is called during source retrieval or benchmark
 construction.
@@ -52,11 +50,11 @@ construction.
 | [L1](l1/README.md) | lossless, observational parsing of each report | `data/l1/` |
 | [L2](l2/SPEC.md) | canonical cases, repairs and receipts | `data/l2/cases.jsonl` |
 | [benchmark](bench/DESIGN.md) | construct and validate T1/T2/T3 items | `bench/items.jsonl` |
-| [runner](bench/README.md) | fixed cumulative item order, P1/P2/P3 requests and durable resume | `bench/runs/<run>/` |
+| [runner](bench/README.md) | fixed cumulative item order, P1/P2/P3 requests and resumable ledgers | `bench/runs/<run>/` |
 | [scorer](bench/APPROACH.md) | accuracy, calibration, discrimination and offline SP selective prediction | `scores.json` |
 
 L1 never repairs source content. L2 may repair it only with an explicit receipt.
-Every excluded item candidate receives a durable reason, and validators
+Every excluded item candidate receives a recorded reason, and validators
 independently re-slice quoted text back to its source.
 
 ## Evaluation workflow
@@ -89,11 +87,28 @@ calls again.
 - [Measurement approach](bench/APPROACH.md)
 - [Task and protocol design](bench/DESIGN.md)
 - [Benchmark harness](bench/README.md)
-- [Reproducibility contract](docs/REPRODUCIBILITY.md)
+- [Reproducibility and source retrieval](docs/REPRODUCIBILITY.md)
 - [Defect and repair register](bench/review/DEFECTS.md)
-- [Historical findings](docs/FINDINGS.md)
-- [Dissertation draft](dissertation/)
-- [Agent/project rules](docs/WORKING_RULES.md)
+- [Working rules](docs/WORKING_RULES.md)
 
-The dissertation brief at the repository root is a required project input and
-must not be removed.
+## What the repository contains
+
+- the retrieval locks: 1,902 completed-case URLs with expected filenames,
+  sizes and SHA-256 hashes (`data/case_urls.jsonl`, `data/manifest.jsonl`),
+  13 case-report PDFs (`scrape/pdf_sources.json`) and 493 ABPI Code resources
+  (`data/code/manifest.jsonl`);
+- the fetchers, parsers and builders for every layer (`scrape/`, `l1/`, `l2/`,
+  `bench/generate.py`), their schemas, and the independent validators and
+  witnesses (`*/validate.py`, `verify/`);
+- curation inputs and repair receipts (`l2/adjudications.json`, `data/l2/`)
+  and the defect register (`bench/review/DEFECTS.md`);
+- the evaluation harness: request planners, provider adapters, scorers and
+  offline tests (`bench/`);
+- the registries: active results (`bench/active_results.json`), planner code
+  lineage (`bench/code_lineage.json`) and the memorisation-probe record
+  (`bench/probes.jsonl`).
+
+`python3 scrape/bootstrap.py --all` turns these into the full source checkout
+and every generated data layer. Commit identifiers cited in the registries
+refer to this repository's history (see
+[REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)).
